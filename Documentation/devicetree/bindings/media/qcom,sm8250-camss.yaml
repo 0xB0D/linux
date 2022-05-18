@@ -103,6 +103,12 @@ properties:
       - description: IFE1 GDSC - Image Front End, Global Distributed Switch Controller.
       - description: Titan GDSC - Titan ISP Block, Global Distributed Switch Controller.
 
+  power-domain-names:
+    items:
+      - const: vfe0
+      - const: vfe1
+      - const: titan_top
+
   ports:
     $ref: /schemas/graph.yaml#/properties/ports
 
@@ -361,6 +367,7 @@ examples:
             power-domains = <&camcc IFE_0_GDSC>,
                             <&camcc IFE_1_GDSC>,
                             <&camcc TITAN_TOP_GDSC>;
+            power-domain-names = "vfe0", "vfe1", "titan_top";
 
             clocks = <&gcc GCC_CAMERA_AHB_CLK>,
                      <&gcc GCC_CAMERA_HF_AXI_CLK>,
