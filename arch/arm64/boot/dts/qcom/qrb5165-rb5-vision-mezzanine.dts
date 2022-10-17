@@ -17,12 +17,53 @@
 	status = "okay";
 
 	ports {
+		/* The port index denotes CSIPHY id i.e. csiphy1 */
+		port@1 {
+			csiphy1_ep: endpoint {
+				clock-lanes = <7>;
+				data-lanes = <0 1>;
+				remote-endpoint = <&ov9282_ep>;
+			};
+		};
 		/* The port index denotes CSIPHY id i.e. csiphy2 */
 		port@2 {
 			csiphy2_ep: endpoint {
 				clock-lanes = <7>;
 				data-lanes = <0 1 2 3>;
 				remote-endpoint = <&imx577_ep>;
+			};
+		};
+	};
+};
+
+&cci0 {
+	status = "okay";
+};
+
+&cci0_i2c1 {
+	camera@60 {
+		compatible = "ovti,ov9282";
+		reg = <0x60>;
+
+		reset-gpios = <&tlmm 92 GPIO_ACTIVE_LOW>;
+		pinctrl-names = "default", "suspend";
+		pinctrl-0 = <&cam1_default>;
+		pinctrl-1 = <&cam1_suspend>;
+
+		clocks = <&camcc CAM_CC_MCLK1_CLK>;
+		assigned-clocks = <&camcc CAM_CC_MCLK1_CLK>;
+		assigned-clock-rates = <24000000>;
+
+		dovdd-supply  = <&vreg_l7f_1p8>;
+		avdd-supply = <&vdc_5v>;
+		dvdd-supply = <&vdc_5v>;
+
+		port {
+			ov9282_ep: endpoint {
+				clock-lanes = <1>;
+				link-frequencies = /bits/ 64 <400000000>;
+				data-lanes = <1 2>;
+				remote-endpoint = <&csiphy1_ep>;
 			};
 		};
 	};
