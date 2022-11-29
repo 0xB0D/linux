@@ -499,6 +499,11 @@ static u32 csid_hw_version(struct csid_device *csid)
 	return hw_version;
 }
 
+static u64 timestamp_get_ns(struct csid_device *csid, int vc)
+{
+	return ktime_get_ns();
+}
+
 /*
  * csid_isr - CSID module interrupt service routine
  * @irq: Interrupt line
@@ -612,6 +617,7 @@ const struct csid_hw_ops csid_ops_gen2 = {
 	.configure_stream = csid_configure_stream,
 	.configure_testgen_pattern = csid_configure_testgen_pattern,
 	.hw_version = csid_hw_version,
+	.timestamp_get_ns = timestamp_get_ns,
 	.isr = csid_isr,
 	.reset = csid_reset,
 	.src_pad_code = csid_src_pad_code,

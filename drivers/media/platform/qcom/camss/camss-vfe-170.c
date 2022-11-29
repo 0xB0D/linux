@@ -638,7 +638,9 @@ static void vfe_isr_wm_done(struct vfe_device *vfe, u8 wm)
 	struct vfe_output *output;
 	unsigned long flags;
 	u32 index;
-	u64 ts = ktime_get_ns();
+	u64 ts;
+
+	ts = msm_csid_timestamp_get_ns(vfe->csid_link, wm);
 
 	spin_lock_irqsave(&vfe->output_lock, flags);
 

@@ -612,8 +612,10 @@ static void vfe_isr_wm_done(struct vfe_device *vfe, u8 wm)
 	dma_addr_t *new_addr;
 	unsigned long flags;
 	u32 active_index;
-	u64 ts = ktime_get_ns();
+	u64 ts;
 	unsigned int i;
+
+	ts = msm_csid_timestamp_get_ns(vfe->csid_link, wm);
 
 	active_index = vfe->ops_gen1->wm_get_ping_pong_status(vfe, wm);
 

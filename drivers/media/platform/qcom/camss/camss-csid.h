@@ -113,6 +113,14 @@ struct csid_hw_ops {
 	u32 (*hw_version)(struct csid_device *csid);
 
 	/*
+	 * msm_csid_get_timestamp_ns - Get a RX timestamp of CSI frame
+	 * @csid: CSID device
+	 *
+	 * Return CLOCK_MONOTONIC CSID RX timestamp
+	 */
+	u64 (*timestamp_get_ns)(struct csid_device *csid, int vc);
+
+	/*
 	 * isr - CSID module interrupt service routine
 	 * @irq: Interrupt line
 	 * @dev: CSID device
@@ -208,6 +216,8 @@ int msm_csid_register_entity(struct csid_device *csid,
 void msm_csid_unregister_entity(struct csid_device *csid);
 
 void msm_csid_get_csid_id(struct media_entity *entity, u8 *id);
+
+u64 msm_csid_timestamp_get_ns(struct csid_device *csid, int vc);
 
 extern const char * const csid_testgen_modes[];
 

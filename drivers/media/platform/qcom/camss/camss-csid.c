@@ -820,6 +820,17 @@ static const struct media_entity_operations csid_media_ops = {
 };
 
 /*
+ * msm_csid_get_timestamp_ns - Get a RX timestamp of CSI frame
+ * @csid: CSID device
+ *
+ * Return CLOCK_MONOTONIC CSID RX timestamp
+ */
+u64 msm_csid_timestamp_get_ns(struct csid_device *csid, int vc)
+{
+	return ktime_get_ns();
+}
+
+/*
  * msm_csid_register_entity - Register subdev node for CSID module
  * @csid: CSID device
  * @v4l2_dev: V4L2 device
