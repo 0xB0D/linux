@@ -18,6 +18,7 @@
 
 #include "camss-video.h"
 #include "camss-vfe-gen1.h"
+#include "camss-csid.h"
 
 #define MSM_VFE_PAD_SINK 0
 #define MSM_VFE_PAD_SRC 1
@@ -151,6 +152,7 @@ struct vfe_device {
 	const struct vfe_hw_ops_gen1 *ops_gen1;
 	struct vfe_isr_ops isr_ops;
 	struct camss_video_ops video_ops;
+	struct csid_device *csid_link;
 };
 
 struct resources;
