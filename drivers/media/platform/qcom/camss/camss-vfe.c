@@ -1454,6 +1454,9 @@ static int vfe_link_setup(struct media_entity *entity,
 	remote_sd = media_entity_to_v4l2_subdev(remote->entity);
 	vfe->csid_link = v4l2_get_subdevdata(remote_sd);
 
+	dev_dbg(vfe->camss->dev, "link setup %s -> %s", remote->entity->name,
+		local->entity->name);
+
 	return 0;
 }
 
