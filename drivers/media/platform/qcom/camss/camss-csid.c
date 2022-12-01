@@ -196,6 +196,8 @@ static int csid_set_power(struct v4l2_subdev *sd, int on)
 			return ret;
 		}
 
+		memset(&csid->qtimer, 0, sizeof(csid->qtimer));
+
 		enable_irq(csid->irq);
 
 		ret = csid->ops->reset(csid);
@@ -823,11 +825,35 @@ static const struct media_entity_operations csid_media_ops = {
  * msm_csid_get_timestamp_ns - Get a RX timestamp of CSI frame
  * @csid: CSID device
  *
- * Return CLOCK_MONOTONIC CSID RX timestamp
+ * Return CLOCK_MONOTONIC or CLOCK_BOOTTIME CSID RX timestamp
  */
 u64 msm_csid_timestamp_get_ns(struct csid_device *csid, int vc)
 {
-	return ktime_get_ns();
+	struct csid_qtimer *qtimer;
+	u64 delta;
+	u64 qtime;
+
+	if (!csid->ops->timestamp_get_ns)
+		return ktime_get_ns();
+
+	qtime = csid->ops->timestamp_get_ns(csid, vc);
+	qtimer = &csid->qtimer[vc];
+
+	if (!qtimer->qtime_prev) {
+		delta = 0;
+		qtimer->boottime = ktime_get_boottime_ns();
+	} else {
+		delta = qtime - qtimer->qtime_prev;
+		qtimer->boottime += delta;
+	}
+
+	dev_dbg(csid->camss->dev,
+		"qtime %llu bootime %llu qtime_prev %llu delta %llu\n",
+		qtime, qtimer->boottime, qtimer->qtime_prev, delta);
+
+	qtimer->qtime_prev = qtime;
+
+	return qtimer->boottime;
 }
 
 /*

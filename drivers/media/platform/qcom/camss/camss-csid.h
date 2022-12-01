@@ -116,7 +116,7 @@ struct csid_hw_ops {
 	 * msm_csid_get_timestamp_ns - Get a RX timestamp of CSI frame
 	 * @csid: CSID device
 	 *
-	 * Return CLOCK_MONOTONIC CSID RX timestamp
+	 * Return CLOCK_MONOTONIC or CLOCK_BOOTTIME CSID RX timestamp
 	 */
 	u64 (*timestamp_get_ns)(struct csid_device *csid, int vc);
 
@@ -157,6 +157,11 @@ struct csid_hw_ops {
 	void (*subdev_init)(struct csid_device *csid);
 };
 
+struct csid_qtimer {
+	u64 boottime;
+	u64 qtime_prev;
+};
+
 struct csid_device {
 	struct camss *camss;
 	u8 id;
@@ -178,6 +183,7 @@ struct csid_device {
 	const struct csid_format *formats;
 	unsigned int nformats;
 	const struct csid_hw_ops *ops;
+	struct csid_qtimer qtimer[MSM_CSID_MAX_SRC_STREAMS];
 };
 
 struct resources;

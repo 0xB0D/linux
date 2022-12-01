@@ -970,7 +970,12 @@ int msm_video_register(struct camss_video *video, struct v4l2_device *v4l2_dev,
 	q->ops = &msm_video_vb2_q_ops;
 	q->type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
 	q->io_modes = VB2_DMABUF | VB2_MMAP | VB2_READ;
-	q->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC;
+	if (video->camss->version == CAMSS_845 ||
+	    video->camss->version == CAMSS_8250) {
+		q->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_BOOTTIME;
+	} else {
+		q->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC;
+	}
 	q->buf_struct_size = sizeof(struct camss_buffer);
 	q->dev = video->camss->dev;
 	q->lock = &video->q_lock;
