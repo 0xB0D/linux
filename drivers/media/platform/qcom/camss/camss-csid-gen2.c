@@ -193,6 +193,15 @@
 #define		TPG_COLOR_BOX_CFG_MODE		0
 #define		TPG_COLOR_BOX_PATTERN_SEL	2
 
+/*
+ * Constant Factors needed to change QTimer ticks to nanoseconds
+ * QTimer Freq = 19.2 MHz
+ * Time(us) = ticks/19.2
+ * Time(ns) = ticks/19.2 * 1000
+ */
+#define CSID_QTIMER_MUL_FACTOR	10000
+#define CSID_QTIMER_DIV_FACTOR	192
+
 static const struct csid_format csid_formats[] = {
 	{
 		MEDIA_BUS_FMT_UYVY8_2X8,
@@ -517,7 +526,19 @@ static u32 csid_hw_version(struct csid_device *csid)
 
 static u64 timestamp_get_ns(struct csid_device *csid, int vc)
 {
-	return ktime_get_ns();
+	u64 ts_hi, ts_lo;
+	u64 ts;
+
+	ts_hi = readl_relaxed(csid->base + CSID_RDI_TIMESTAMP_CURR1_SOF(vc));
+	ts_lo = readl_relaxed(csid->base + CSID_RDI_TIMESTAMP_CURR0_SOF(vc));
+
+	ts = ts_lo;
+	ts |= ts_hi << 32;
+
+	ts = mul_u64_u32_div(ts, CSID_QTIMER_MUL_FACTOR,
+			     CSID_QTIMER_DIV_FACTOR);
+
+	return ts;
 }
 
 /*
