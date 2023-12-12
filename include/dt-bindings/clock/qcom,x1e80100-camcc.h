@@ -115,6 +115,7 @@
 #define CAM_CC_SLEEP_CLK_SRC					105
 #define CAM_CC_SLOW_AHB_CLK_SRC					106
 #define CAM_CC_XO_CLK_SRC					107
+#define CAM_CC_QDSS_DEBUG_XO_CLK				108
 
 /* CAM_CC power domains */
 #define CAM_CC_BPS_GDSC						0
