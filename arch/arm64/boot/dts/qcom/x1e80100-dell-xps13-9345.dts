@@ -781,6 +781,32 @@
 	};
 };
 
+&camcc {
+	status = "okay";
+};
+
+&camss {
+
+	status = "okay";
+
+	ports {
+		/*
+		 * port0 => csiphy0
+		 * port1 => csiphy1
+		 * port2 => csiphy2
+		 * port3 => csiphy4
+		 */
+		port@3 {
+			csiphy4_ep: endpoint@4 {
+				reg = <4>;
+				clock-lanes = <7>;
+				data-lanes = <0 1>;
+				remote-endpoint = <&ov02e10_ep>;
+			};
+		};
+	};
+};
+
 &cci1 {
 	status = "okay";
 };
@@ -799,8 +825,6 @@
 		assigned-clock-rates = <19200000>;
 
 		orientation = <0>; /* front facing */
-
-		rotation = <180>;
 
 		avdd-supply = <&vreg_l7b_2p8>;
 		dvdd-supply = <&vreg_l7b_2p8>;
