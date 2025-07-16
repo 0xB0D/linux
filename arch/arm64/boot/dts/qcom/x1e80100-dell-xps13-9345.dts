@@ -786,7 +786,6 @@
 };
 
 &camss {
-
 	status = "okay";
 
 	ports {
