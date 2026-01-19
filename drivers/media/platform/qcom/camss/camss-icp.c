@@ -164,7 +164,7 @@ struct hfi_queue_header {
 	u32 read_idx;
 	u32 dummy13[15];
 	u32 write_idx;
-	u32 dummy14[16];  /* 16 elements to pad structure to 960 bytes */
+	u32 dummy14[15];
 };
 
 struct hfi_queue_table_header {
