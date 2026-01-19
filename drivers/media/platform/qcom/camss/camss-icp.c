@@ -103,9 +103,9 @@
 #define HFI_DBG_Q_DATA_SIZE		102400
 
 /* HFI queue types and version */
-#define HFI_QUEUE_CMD_TYPE		1
-#define HFI_QUEUE_MSG_TYPE		2
-#define HFI_QUEUE_DBG_TYPE		3
+#define HFI_QUEUE_CMD_TYPE		0
+#define HFI_QUEUE_MSG_TYPE		1
+#define HFI_QUEUE_DBG_TYPE		2
 #define HFI_QUEUE_TABLE_VERSION		0xFFFFFFFF
 
 /* HFI command types */
