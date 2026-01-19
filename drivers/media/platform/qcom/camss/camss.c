@@ -16,6 +16,7 @@
 #include <linux/of.h>
 #include <linux/of_device.h>
 #include <linux/of_graph.h>
+#include <linux/of_platform.h>
 #include <linux/pm_runtime.h>
 #include <linux/pm_domain.h>
 #include <linux/slab.h>
@@ -4963,6 +4964,15 @@ static void camss_genpd_cleanup(struct camss *camss)
 }
 
 /*
+ * Match table for child nodes that camss.c registers as platform devices.
+ * This includes existing nodes (csiphy, csid, vfe) plus the new ICP node.
+ */
+static const struct of_device_id camss_child_match[] = {
+	{ .compatible = "qcom,x1e80100-camss-icp" },	/* NEW: ICP node */
+	{ }
+};
+
+/*
  * camss_probe - Probe CAMSS platform device
  * @pdev: Pointer to CAMSS platform device
  *
@@ -5043,6 +5053,23 @@ static int camss_probe(struct platform_device *pdev)
 
 	pm_runtime_enable(dev);
 
+	/*
+	 * Register child nodes as platform devices.
+	 *
+	 * This includes:
+	 * - Existing: csiphy, csid, vfe
+	 * - New: icp
+	 *
+	 * Note: IPE and BPS are NOT registered here. They are siblings
+	 * of ICP in the device tree, but are registered by the ICP
+	 * driver since ICP needs to probe first to provide HFI.
+	 */
+	ret = of_platform_populate(dev->of_node, camss_child_match, NULL, dev);
+	if (ret) {
+		dev_err(dev, "Failed to populate child devices: %d\n", ret);
+		goto err_of_platform_depopulate;
+	}
+
 	ret = camss_parse_ports(camss);
 	if (ret < 0)
 		goto err_v4l2_device_unregister;
@@ -5079,6 +5106,8 @@ err_v4l2_device_unregister:
 	v4l2_device_unregister(&camss->v4l2_dev);
 	v4l2_async_nf_cleanup(&camss->notifier);
 	pm_runtime_disable(dev);
+err_of_platform_depopulate:
+	of_platform_depopulate(&pdev->dev);
 err_media_device_cleanup:
 	media_device_cleanup(&camss->media_dev);
 err_genpd_cleanup:

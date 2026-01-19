@@ -22,6 +22,9 @@
 #include "camss-csiphy.h"
 #include "camss-ispif.h"
 #include "camss-vfe.h"
+#include "camss-icp.h"
+#include "camss-bps.h"
+#include "camss-ipe.h"
 #include "camss-format.h"
 
 #define to_camss(ptr_module)	\
@@ -115,6 +118,7 @@ struct camss_resources {
 	const unsigned int csiphy_num;
 	const unsigned int csid_num;
 	const unsigned int vfe_num;
+	const struct icp_resources *icp_res;
 };
 
 struct camss {
@@ -126,6 +130,9 @@ struct camss {
 	struct csid_device *csid;
 	struct ispif_device *ispif;
 	struct vfe_device *vfe;
+	struct camss_icp *icp;
+	struct camss_bps *bps;
+	struct camss_ipe *ipe;
 	void __iomem *csid_wrapper_base;
 	atomic_t ref_count;
 	int genpd_num;

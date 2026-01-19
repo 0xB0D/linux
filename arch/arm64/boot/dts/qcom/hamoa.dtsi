@@ -5495,7 +5495,10 @@
 		};
 
 		camss: isp@acb6000 {
-			compatible = "qcom,x1e80100-camss";
+			compatible = "qcom,x1e80100-camss", "simple-bus";
+			#address-cells = <2>;
+			#size-cells = <2>;
+			ranges;
 
 			reg = <0 0x0acb6000 0 0x1000>,
 			      <0 0x0acb7000 0 0x2000>,
@@ -5620,6 +5623,9 @@
 					     "ife1",
 					     "top";
 
+			memory-region = <&camera_mem>;
+			fw_name = "qcom/x1e80100/CAMERA_ICP";
+
 			status = "disabled";
 
 			ports {
@@ -5659,6 +5665,237 @@
 					#size-cells = <0>;
 					camss_csiphy4_inep0: endpoint@0 {
 						reg = <0>;
+					};
+				};
+			};
+
+			/*
+			 * ICP - Image Control Processor
+			 *
+			 * Tensilica LX7 providing HFI for IPE/BPS.
+			 * Manages its own power and clocks.
+			 * Registered as platform device by camss.c.
+			 * Probed by camss-icp.c which registers ipe/bps.
+			 *
+			 * IOMMU: ICP has multiple SMMU contexts:
+			 *  - 0x1800: Main processor context (firmware execution)
+			 *  - 0x1900: CDM/DMA context
+			 *  - 0x1980: Alternate context
+			 */
+			icp: icp@ac01000 {
+				compatible = "qcom,x1e80100-camss-icp";
+
+				reg = <0 0xac01000 0 0x500>,
+				      <0 0xac01800 0 0x400>,
+				      <0 0xac04000 0 0x100>;
+				reg-names = "csr", "cirq", "wd";
+
+				interrupts = <GIC_SPI 463 IRQ_TYPE_EDGE_RISING>;
+
+				/*
+				 * ICP clocks plus BPS/IPE clocks.
+				 * ICP firmware expects BPS/IPE to be clocked before boot.
+				 */
+				clocks = <&camcc CAM_CC_ICP_AHB_CLK>,
+					 <&camcc CAM_CC_ICP_CLK>,
+					 <&camcc CAM_CC_QDSS_DEBUG_XO_CLK>,
+					 /* BPS clocks */
+					 <&camcc CAM_CC_BPS_AHB_CLK>,
+					 <&camcc CAM_CC_BPS_FAST_AHB_CLK>,
+					 <&camcc CAM_CC_BPS_CLK>,
+					 <&camcc CAM_CC_CPAS_BPS_CLK>,
+					 /* IPE clocks */
+					 <&camcc CAM_CC_IPE_NPS_AHB_CLK>,
+					 <&camcc CAM_CC_IPE_NPS_FAST_AHB_CLK>,
+					 <&camcc CAM_CC_IPE_PPS_FAST_AHB_CLK>,
+					 <&camcc CAM_CC_IPE_NPS_CLK>,
+					 <&camcc CAM_CC_IPE_PPS_CLK>,
+					 <&camcc CAM_CC_CPAS_IPE_NPS_CLK>;
+				clock-names = "ahb", "core", "debug_xo",
+					      "bps_ahb", "bps_fast_ahb", "bps", "cpas_bps",
+					      "ipe_ahb", "ipe_nps_fast_ahb", "ipe_pps_fast_ahb",
+					      "ipe_nps", "ipe_pps", "cpas_ipe";
+
+				/*
+				 * Power domains: TITAN_TOP plus BPS and IPE GDSCs.
+				 * ICP firmware expects BPS/IPE powered before boot.
+				 */
+				power-domains = <&camcc CAM_CC_TITAN_TOP_GDSC>,
+						<&camcc CAM_CC_BPS_GDSC>,
+						<&camcc CAM_CC_IPE_0_GDSC>;
+				power-domain-names = "top", "bps", "ipe";
+
+				/*
+				 * ICP SMMU contexts
+				 * Multiple stream IDs for processor and DMA
+				 */
+				iommus = <&apps_smmu 0x1800 0x0>,
+					 <&apps_smmu 0x1900 0x0>,
+					 <&apps_smmu 0x1980 0x0>;
+				dma-coherent;
+
+				interconnects = <&mmss_noc MASTER_CAMNOC_SF 0
+						 &mc_virt SLAVE_EBI1 0>;
+				interconnect-names = "mem";
+
+				memory-region = <&camera_mem>;
+				firmware-name = "qcom/x1e80100/CAMERA_ICP";
+
+				operating-points-v2 = <&icp_opp_table>;
+
+				icp_opp_table: opp-table {
+					compatible = "operating-points-v2";
+
+					#address-cells = <1>;
+					#size-cells = <0>;
+
+					opp-400000000 {
+						opp-hz = /bits/ 64 <400000000>;
+						required-opps = <&rpmhpd_opp_low_svs>;
+					};
+
+					opp-480000000 {
+						opp-hz = /bits/ 64 <480000000>;
+						required-opps = <&rpmhpd_opp_svs>;
+					};
+
+					opp-600000000 {
+						opp-hz = /bits/ 64 <600000000>;
+						required-opps = <&rpmhpd_opp_svs_l1>;
+					};
+				};
+			};
+
+			/*
+			 * IPE - Image Processing Engine
+			 *
+			 * V4L2 mem2mem device for post-processing.
+			 * Manages its own power and clocks.
+			 * Registered as platform device by camss-icp.c.
+			 * Probed by camss-ipe.c.
+			 *
+			 * IOMMU: IPE has its own SMMU context for buffer access.
+			 * IPE accesses buffers directly via DMA, not through ICP.
+			 */
+			ipe: ipe@ac42000 {
+				compatible = "qcom,x1e80100-camss-ipe";
+
+				reg = <0 0xac42000 0 0x16000>;
+
+				clocks = <&camcc CAM_CC_IPE_NPS_AHB_CLK>,
+					 <&camcc CAM_CC_IPE_NPS_FAST_AHB_CLK>,
+					 <&camcc CAM_CC_IPE_PPS_FAST_AHB_CLK>,
+					 <&camcc CAM_CC_IPE_NPS_CLK>,
+					 <&camcc CAM_CC_IPE_PPS_CLK>,
+					 <&camcc CAM_CC_CPAS_IPE_NPS_CLK>;
+				clock-names = "ahb", "nps_fast_ahb", "pps_fast_ahb",
+					      "nps", "pps", "cpas";
+
+				power-domains = <&camcc CAM_CC_IPE_0_GDSC>;
+
+				/*
+				 * IPE SMMU context - image buffer access
+				 * Uses same context bank as ICP for shared buffer access
+				 */
+				iommus = <&apps_smmu 0x1800 0x0>;
+				dma-coherent;
+
+				interconnects = <&mmss_noc MASTER_CAMNOC_SF 0
+						 &mc_virt SLAVE_EBI1 0>;
+				interconnect-names = "mem";
+
+				ubwc-fetch-cfg = <0x7083>;
+				ubwc-write-cfg = <0x1620f>;
+
+				operating-points-v2 = <&ipe_opp_table>;
+
+				ipe_opp_table: opp-table {
+					compatible = "operating-points-v2";
+
+					#address-cells = <1>;
+					#size-cells = <0>;
+
+					opp-364000000 {
+						opp-hz = /bits/ 64 <364000000>;
+						required-opps = <&rpmhpd_opp_low_svs>;
+					};
+
+					opp-500000000 {
+						opp-hz = /bits/ 64 <500000000>;
+						required-opps = <&rpmhpd_opp_svs>;
+					};
+
+					opp-600000000 {
+						opp-hz = /bits/ 64 <600000000>;
+						required-opps = <&rpmhpd_opp_svs_l1>;
+					};
+
+					opp-700000000 {
+						opp-hz = /bits/ 64 <700000000>;
+						required-opps = <&rpmhpd_opp_nom>;
+					};
+				};
+			};
+
+			/*
+			 * BPS - Bayer Processing Segment
+			 *
+			 * V4L2 mem2mem device for demosaicing.
+			 * Manages its own power and clocks.
+			 * Registered as platform device by camss-icp.c.
+			 * Probed by camss-bps.c.
+			 *
+			 * IOMMU: BPS has its own SMMU context for buffer access.
+			 * BPS accesses buffers directly via DMA, not through ICP.
+			 */
+			bps: bps@ac2c000 {
+				compatible = "qcom,x1e80100-camss-bps";
+
+				reg = <0 0xac2c000 0 0x8000>;
+
+				clocks = <&camcc CAM_CC_BPS_AHB_CLK>,
+					 <&camcc CAM_CC_BPS_FAST_AHB_CLK>,
+					 <&camcc CAM_CC_BPS_CLK>,
+					 <&camcc CAM_CC_CPAS_BPS_CLK>;
+				clock-names = "ahb", "fast_ahb", "core", "cpas";
+
+				power-domains = <&camcc CAM_CC_BPS_GDSC>;
+
+				/*
+				 * BPS SMMU context - image buffer access
+				 * Uses same context bank as ICP for shared buffer access
+				 */
+				iommus = <&apps_smmu 0x1800 0x0>;
+				dma-coherent;
+
+				interconnects = <&mmss_noc MASTER_CAMNOC_SF 0
+						 &mc_virt SLAVE_EBI1 0>;
+				interconnect-names = "mem";
+
+				ubwc-fetch-cfg = <0x7083>;
+				ubwc-write-cfg = <0x1620f>;
+
+				operating-points-v2 = <&bps_opp_table>;
+
+				bps_opp_table: opp-table {
+					compatible = "operating-points-v2";
+
+					#address-cells = <1>;
+					#size-cells = <0>;
+
+					opp-200000000 {
+						opp-hz = /bits/ 64 <200000000>;
+						required-opps = <&rpmhpd_opp_low_svs>;
+					};
+
+					opp-400000000 {
+						opp-hz = /bits/ 64 <400000000>;
+						required-opps = <&rpmhpd_opp_svs>;
+					};
+
+					opp-600000000 {
+						opp-hz = /bits/ 64 <600000000>;
+						required-opps = <&rpmhpd_opp_nom>;
 					};
 				};
 			};

@@ -8,3 +8,27 @@ config VIDEO_QCOM_CAMSS
 	select VIDEOBUF2_DMA_SG
 	select V4L2_FWNODE
 	select PHY_QCOM_MIPI_CSI2
+
+config VIDEO_QCOM_CAMSS_HARD_ISP
+	tristate "Qualcomm CAMSS Hardware ISP (ICP/IPE/BPS)"
+	depends on VIDEO_QCOM_CAMSS
+	depends on QCOM_MDT_LOADER
+	depends on QCOM_SCM
+	depends on VIDEO_DEV
+	select VIDEOBUF2_DMA_CONTIG
+	select V4L2_MEM2MEM_DEV
+	help
+	  Enable support for the hardware ISP found in Qualcomm camera
+	  subsystems on SoCs like X1E80100. This includes:
+
+	  - ICP (Image Control Processor): Tensilica LX7 that runs
+	    camera firmware and provides HFI interface
+	  - IPE (Image Processing Engine): V4L2 m2m device for noise
+	    reduction, sharpening, and scaling
+	  - BPS (Bayer Processing Segment): V4L2 m2m device for
+	    demosaicing raw Bayer data
+
+	  If unsure, say N.
+
+	  To compile this as modules, choose M here. The modules will
+	  be called camss-icp, camss-ipe, and camss-bps, respecitvely.
