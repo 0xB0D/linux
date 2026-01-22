@@ -427,11 +427,12 @@ static void icp_free_region(struct camss_icp *icp, struct icp_mem_region *region
 	region->vaddr = NULL;
 }
 
-/* HFI queue init - allocate each region separately */
+/* HFI queue init - allocate like CAMX: one FwUncached region with sub-regions as offsets */
 static int icp_hfi_queue_init(struct camss_icp *icp)
 {
 	struct hfi_queue_table_header *qtbl;
 	struct hfi_queue_header *qhdr;
+	void *base;
 	u32 *sfr;
 	int ret;
 
@@ -439,63 +440,95 @@ static int icp_hfi_queue_init(struct camss_icp *icp)
 		 sizeof(struct hfi_queue_header),
 		 sizeof(struct hfi_queue_table_header));
 
-	/* Allocate each region separately with its own IOMMU mapping */
-	ret = icp_alloc_region(icp, &icp->hfi_mem.qtbl, HFI_QTBL_SIZE, ICP_IOVA_QTBL);
+	/*
+	 * Allocation strategy matching CAMX:
+	 * 1. SHMEM - small control buffer at 0x800000
+	 * 2. FwUncached - 7MB at 0x10400000, contains all HFI structures
+	 * 3. QDSS - 1MB at 0x10B00000
+	 */
+
+	/* SHMEM - shared memory control area */
+	ret = icp_alloc_region(icp, &icp->hfi_mem.shmem, HFI_SHMEM_SIZE, ICP_IOVA_SHARED);
 	if (ret)
 		return ret;
 
-	ret = icp_alloc_region(icp, &icp->hfi_mem.cmd_q, HFI_Q_SIZE, ICP_IOVA_CMD_Q);
-	if (ret)
-		goto free_qtbl;
-
-	ret = icp_alloc_region(icp, &icp->hfi_mem.msg_q, HFI_Q_SIZE, ICP_IOVA_MSG_Q);
-	if (ret)
-		goto free_cmd_q;
-
-	ret = icp_alloc_region(icp, &icp->hfi_mem.dbg_q, HFI_Q_SIZE, ICP_IOVA_DBG_Q);
-	if (ret)
-		goto free_msg_q;
-
-	ret = icp_alloc_region(icp, &icp->hfi_mem.sfr, HFI_SFR_SIZE, ICP_IOVA_SFR);
-	if (ret)
-		goto free_dbg_q;
-
-	ret = icp_alloc_region(icp, &icp->hfi_mem.shmem, HFI_SHMEM_SIZE, ICP_IOVA_SHARED);
-	if (ret)
-		goto free_sfr;
-
-	ret = icp_alloc_region(icp, &icp->hfi_mem.secheap, HFI_SECHEAP_SIZE, ICP_IOVA_SECHEAP);
+	/* FwUncached - single 7MB allocation containing all HFI structures */
+	ret = icp_alloc_region(icp, &icp->hfi_mem.secheap, HFI_FWUNCACHED_SIZE, ICP_IOVA_SECHEAP);
 	if (ret)
 		goto free_shmem;
 
+	/* QDSS - debug trace buffer */
 	ret = icp_alloc_region(icp, &icp->hfi_mem.qdss, HFI_QDSS_SIZE, ICP_IOVA_QDSS);
 	if (ret)
 		goto free_secheap;
 
-	dev_info(icp->dev, "HFI regions allocated:\n");
-	dev_info(icp->dev, "  QTBL:    vaddr=%px iova=0x%llx size=0x%zx\n",
-		 icp->hfi_mem.qtbl.vaddr, (u64)icp->hfi_mem.qtbl.iova, icp->hfi_mem.qtbl.size);
-	dev_info(icp->dev, "  CMD_Q:   vaddr=%px iova=0x%llx size=0x%zx\n",
-		 icp->hfi_mem.cmd_q.vaddr, (u64)icp->hfi_mem.cmd_q.iova, icp->hfi_mem.cmd_q.size);
-	dev_info(icp->dev, "  MSG_Q:   vaddr=%px iova=0x%llx size=0x%zx\n",
-		 icp->hfi_mem.msg_q.vaddr, (u64)icp->hfi_mem.msg_q.iova, icp->hfi_mem.msg_q.size);
-	dev_info(icp->dev, "  DBG_Q:   vaddr=%px iova=0x%llx size=0x%zx\n",
-		 icp->hfi_mem.dbg_q.vaddr, (u64)icp->hfi_mem.dbg_q.iova, icp->hfi_mem.dbg_q.size);
-	dev_info(icp->dev, "  SFR:     vaddr=%px iova=0x%llx size=0x%zx\n",
-		 icp->hfi_mem.sfr.vaddr, (u64)icp->hfi_mem.sfr.iova, icp->hfi_mem.sfr.size);
+	/*
+	 * Carve out sub-regions from FwUncached (7MB at 0x10400000):
+	 *   +0x000000 (0x10400000): SecHeap base - 1MB
+	 *   +0x100000 (0x10500000): QTBL - 1MB
+	 *   +0x200000 (0x10600000): CMD_Q - 1MB
+	 *   +0x300000 (0x10700000): MSG_Q - 1MB
+	 *   +0x400000 (0x10800000): DBG_Q - 1MB
+	 *   +0x500000 (0x10900000): SFR - 8KB (within last 2MB)
+	 */
+	base = icp->hfi_mem.secheap.vaddr;
+
+	/* QTBL at offset 1MB */
+	icp->hfi_mem.qtbl.vaddr = base + 0x100000;
+	icp->hfi_mem.qtbl.iova = icp->hfi_mem.secheap.iova + 0x100000;
+	icp->hfi_mem.qtbl.size = HFI_QTBL_SIZE;
+
+	/* CMD_Q at offset 2MB */
+	icp->hfi_mem.cmd_q.vaddr = base + 0x200000;
+	icp->hfi_mem.cmd_q.iova = icp->hfi_mem.secheap.iova + 0x200000;
+	icp->hfi_mem.cmd_q.size = HFI_Q_SIZE;
+
+	/* MSG_Q at offset 3MB */
+	icp->hfi_mem.msg_q.vaddr = base + 0x300000;
+	icp->hfi_mem.msg_q.iova = icp->hfi_mem.secheap.iova + 0x300000;
+	icp->hfi_mem.msg_q.size = HFI_Q_SIZE;
+
+	/* DBG_Q at offset 4MB */
+	icp->hfi_mem.dbg_q.vaddr = base + 0x400000;
+	icp->hfi_mem.dbg_q.iova = icp->hfi_mem.secheap.iova + 0x400000;
+	icp->hfi_mem.dbg_q.size = HFI_Q_SIZE;
+
+	/* SFR at offset 5MB */
+	icp->hfi_mem.sfr.vaddr = base + 0x500000;
+	icp->hfi_mem.sfr.iova = icp->hfi_mem.secheap.iova + 0x500000;
+	icp->hfi_mem.sfr.size = HFI_SFR_SIZE;
+
+	dev_info(icp->dev, "HFI memory layout (from FwUncached @ 0x%llx):\n",
+		 (u64)icp->hfi_mem.secheap.iova);
 	dev_info(icp->dev, "  SHMEM:   vaddr=%px iova=0x%llx size=0x%zx\n",
-		 icp->hfi_mem.shmem.vaddr, (u64)icp->hfi_mem.shmem.iova, icp->hfi_mem.shmem.size);
-	dev_info(icp->dev, "  SECHEAP: vaddr=%px iova=0x%llx size=0x%zx\n",
-		 icp->hfi_mem.secheap.vaddr, (u64)icp->hfi_mem.secheap.iova, icp->hfi_mem.secheap.size);
+		 icp->hfi_mem.shmem.vaddr, (u64)icp->hfi_mem.shmem.iova,
+		 icp->hfi_mem.shmem.size);
+	dev_info(icp->dev, "  SECHEAP: vaddr=%px iova=0x%llx size=0x%zx (base)\n",
+		 icp->hfi_mem.secheap.vaddr, (u64)icp->hfi_mem.secheap.iova,
+		 icp->hfi_mem.secheap.size);
+	dev_info(icp->dev, "  QTBL:    vaddr=%px iova=0x%llx (offset +0x100000)\n",
+		 icp->hfi_mem.qtbl.vaddr, (u64)icp->hfi_mem.qtbl.iova);
+	dev_info(icp->dev, "  CMD_Q:   vaddr=%px iova=0x%llx (offset +0x200000)\n",
+		 icp->hfi_mem.cmd_q.vaddr, (u64)icp->hfi_mem.cmd_q.iova);
+	dev_info(icp->dev, "  MSG_Q:   vaddr=%px iova=0x%llx (offset +0x300000)\n",
+		 icp->hfi_mem.msg_q.vaddr, (u64)icp->hfi_mem.msg_q.iova);
+	dev_info(icp->dev, "  DBG_Q:   vaddr=%px iova=0x%llx (offset +0x400000)\n",
+		 icp->hfi_mem.dbg_q.vaddr, (u64)icp->hfi_mem.dbg_q.iova);
+	dev_info(icp->dev, "  SFR:     vaddr=%px iova=0x%llx (offset +0x500000)\n",
+		 icp->hfi_mem.sfr.vaddr, (u64)icp->hfi_mem.sfr.iova);
 	dev_info(icp->dev, "  QDSS:    vaddr=%px iova=0x%llx size=0x%zx\n",
-		 icp->hfi_mem.qdss.vaddr, (u64)icp->hfi_mem.qdss.iova, icp->hfi_mem.qdss.size);
+		 icp->hfi_mem.qdss.vaddr, (u64)icp->hfi_mem.qdss.iova,
+		 icp->hfi_mem.qdss.size);
 
 	/* Initialize SFR buffer - first u32 is the buffer capacity */
 	sfr = icp->hfi_mem.sfr.vaddr;
 	*sfr = HFI_SFR_SIZE - sizeof(u32);
+	dev_info(icp->dev, "  SFR initialized: size field = 0x%x\n", *sfr);
 
 	/* Initialize queue table header */
 	qtbl = icp->hfi_mem.qtbl.vaddr;
+	memset(qtbl, 0, sizeof(*qtbl) + 3 * sizeof(struct hfi_queue_header));
+
 	qtbl->version = HFI_QUEUE_TABLE_VERSION;
 	qtbl->size = sizeof(struct hfi_queue_table_header) + 3 * sizeof(struct hfi_queue_header);
 	qtbl->qhdr0_offset = sizeof(struct hfi_queue_table_header);
@@ -552,29 +585,22 @@ free_secheap:
 	icp_free_region(icp, &icp->hfi_mem.secheap);
 free_shmem:
 	icp_free_region(icp, &icp->hfi_mem.shmem);
-free_sfr:
-	icp_free_region(icp, &icp->hfi_mem.sfr);
-free_dbg_q:
-	icp_free_region(icp, &icp->hfi_mem.dbg_q);
-free_msg_q:
-	icp_free_region(icp, &icp->hfi_mem.msg_q);
-free_cmd_q:
-	icp_free_region(icp, &icp->hfi_mem.cmd_q);
-free_qtbl:
-	icp_free_region(icp, &icp->hfi_mem.qtbl);
 	return ret;
 }
 
 static void icp_hfi_queue_deinit(struct camss_icp *icp)
 {
+	/* Only free the actual allocations, not the sub-regions (which are just pointers) */
 	icp_free_region(icp, &icp->hfi_mem.qdss);
-	icp_free_region(icp, &icp->hfi_mem.secheap);
+	icp_free_region(icp, &icp->hfi_mem.secheap);  /* This contains QTBL, queues, SFR */
 	icp_free_region(icp, &icp->hfi_mem.shmem);
-	icp_free_region(icp, &icp->hfi_mem.sfr);
-	icp_free_region(icp, &icp->hfi_mem.dbg_q);
-	icp_free_region(icp, &icp->hfi_mem.msg_q);
-	icp_free_region(icp, &icp->hfi_mem.cmd_q);
-	icp_free_region(icp, &icp->hfi_mem.qtbl);
+
+	/* Clear the sub-region pointers */
+	memset(&icp->hfi_mem.qtbl, 0, sizeof(icp->hfi_mem.qtbl));
+	memset(&icp->hfi_mem.cmd_q, 0, sizeof(icp->hfi_mem.cmd_q));
+	memset(&icp->hfi_mem.msg_q, 0, sizeof(icp->hfi_mem.msg_q));
+	memset(&icp->hfi_mem.dbg_q, 0, sizeof(icp->hfi_mem.dbg_q));
+	memset(&icp->hfi_mem.sfr, 0, sizeof(icp->hfi_mem.sfr));
 }
 
 /* HFI message receive */
