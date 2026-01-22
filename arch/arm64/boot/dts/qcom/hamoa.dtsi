@@ -645,7 +645,7 @@
 			no-map;
 		};
 
-		camera_mem: camera@8e100000 {
+		camera_fw_mem: camera@8e100000 {
 			reg = <0x0 0x8e100000 0x0 0x800000>;
 			no-map;
 		};
@@ -705,6 +705,13 @@
 			reg = <0x0 0xffe00000 0x0 0x200000>;
 			hwlocks = <&tcsr_mutex 3>;
 			no-map;
+		};
+
+		camera_icp_mem: camera_icp_mem {
+			compatible = "shared-dma-pool";
+			reusable;
+			size = <0x0 0x11000000>;
+			alignment = <0x0 0x00100000>;
 		};
 	};
 
@@ -5623,9 +5630,6 @@
 					     "ife1",
 					     "top";
 
-			memory-region = <&camera_mem>;
-			fw_name = "qcom/x1e80100/CAMERA_ICP";
-
 			status = "disabled";
 
 			ports {
@@ -5738,7 +5742,7 @@
 						 &mc_virt SLAVE_EBI1 0>;
 				interconnect-names = "mem";
 
-				memory-region = <&camera_mem>;
+				memory-region = <&camera_fw_mem>, <&camera_icp_mem>;
 				firmware-name = "qcom/x1e80100/CAMERA_ICP";
 
 				operating-points-v2 = <&icp_opp_table>;
