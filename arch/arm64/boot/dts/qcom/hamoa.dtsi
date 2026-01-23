@@ -5733,10 +5733,9 @@
 				 * ICP SMMU contexts
 				 * Multiple stream IDs for processor and DMA
 				 */
-				iommus = <&apps_smmu 0x1800 0x0>,
-					 <&apps_smmu 0x1900 0x0>,
-					 <&apps_smmu 0x1980 0x0>;
-				dma-coherent;
+				iommus = <&apps_smmu 0x1800 0x60>,
+					 <&apps_smmu 0x1980 0x20>,
+					 <&apps_smmu 0x1900 0x0>;
 
 				interconnects = <&mmss_noc MASTER_CAMNOC_SF 0
 						 &mc_virt SLAVE_EBI1 0>;

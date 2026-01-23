@@ -776,8 +776,11 @@ static int icp_boot(struct camss_icp *icp)
 		return ret;
 	}
 
-	if (icp->icc_path)
-		icc_set_bw(icp->icc_path, 0, 1000000000);
+	if (icp->icc_path) {
+		/* Vote for bandwidth on CAMNOC - both average and peak */
+		icc_set_bw(icp->icc_path, 100000000, 1000000000);
+		dev_info(icp->dev, "ICC: voted ab=100MB/s ib=1GB/s\n");
+	}
 
 	/* Read HW version */
 	hw_version = readl(icp->csr_base + ICP_CSR_HW_VERSION);
@@ -792,6 +795,24 @@ static int icp_boot(struct camss_icp *icp)
 	/* Configure interrupts - unmask ICP2HOST */
 	writel(0x7f, icp->cirq_base + CIRQ_OB_CLEAR);
 	writel(CIRQ_ICP2HOSTINT | CIRQ_WDT_BITE_WS0, icp->cirq_base + CIRQ_OB_MASK);
+
+	/*
+	 * Configure CAMNOC for ICP traffic.
+	 * CAMX CPAS driver writes to SidebandManager_FlagOutSet0_Low (0x2288)
+	 * to enable ICP port. CAMNOC base is 0xac00000.
+	 */
+	{
+		void __iomem *camnoc_base;
+		camnoc_base = ioremap(0xac00000, 0x6000);
+		if (camnoc_base) {
+			/* SidebandManager_main_SidebandManager_FlagOutSet0_Low */
+			writel(0x100000, camnoc_base + 0x2288);
+			dev_info(icp->dev, "CAMNOC: wrote 0x100000 to FlagOutSet0_Low (0x2288)\n");
+			iounmap(camnoc_base);
+		} else {
+			dev_warn(icp->dev, "Failed to map CAMNOC registers\n");
+		}
+	}
 
 	/* Load firmware into memory */
 	ret = icp_load_firmware(icp);
@@ -833,7 +854,7 @@ static int icp_boot(struct camss_icp *icp)
 	writel(HFI_SHMEM_REGION_SIZE, icp->csr_base + HFI_REG_SHARED_MEM_SIZE);
 	writel(icp->hfi_mem.qtbl.iova, icp->csr_base + HFI_REG_QTBL_PTR);
 	writel(icp->hfi_mem.secheap.iova, icp->csr_base + HFI_REG_SECONDARY_HEAP_PTR);
-	writel(icp->hfi_mem.secheap.size, icp->csr_base + HFI_REG_SECONDARY_HEAP_SIZE);
+	writel(HFI_SECHEAP_SIZE, icp->csr_base + HFI_REG_SECONDARY_HEAP_SIZE);
 	writel(icp->hfi_mem.sfr.iova, icp->csr_base + HFI_REG_SFR_PTR);
 	writel(icp->hfi_mem.qdss.iova, icp->csr_base + HFI_REG_QDSS_IOVA);
 	writel(icp->hfi_mem.qdss.size, icp->csr_base + HFI_REG_QDSS_IOVA_SIZE);
