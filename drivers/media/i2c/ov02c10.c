@@ -661,6 +661,7 @@ static int ov02c10_power_off(struct device *dev)
 	struct ov02c10 *ov02c10 = to_ov02c10(sd);
 
 	gpiod_set_value_cansleep(ov02c10->reset, 1);
+	usleep_range(2000, 2200);
 
 	regulator_bulk_disable(ARRAY_SIZE(ov02c10_supply_names),
 			       ov02c10->supplies);
@@ -676,11 +677,20 @@ static int ov02c10_power_on(struct device *dev)
 	struct ov02c10 *ov02c10 = to_ov02c10(sd);
 	int ret;
 
+	if (ov02c10->reset) {
+		/* Ensure reset is asserted before trying to power_on */
+		gpiod_set_value_cansleep(ov02c10->reset, 1);
+		usleep_range(2000, 2200);
+	}
+
 	ret = clk_prepare_enable(ov02c10->img_clk);
 	if (ret < 0) {
 		dev_err(dev, "failed to enable imaging clock: %d", ret);
 		return ret;
 	}
+
+	/* Let the clock stabilise */
+	usleep_range(2000, 2200);
 
 	ret = regulator_bulk_enable(ARRAY_SIZE(ov02c10_supply_names),
 				    ov02c10->supplies);
@@ -694,6 +704,7 @@ static int ov02c10_power_on(struct device *dev)
 		/* Assert reset for at least 2ms on back to back off-on */
 		usleep_range(2000, 2200);
 		gpiod_set_value_cansleep(ov02c10->reset, 0);
+		/* This is where we need to capture power_on() T2 */
 		usleep_range(5000, 5100);
 	}
 
