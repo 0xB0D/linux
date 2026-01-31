@@ -10,25 +10,20 @@
 
 #include <linux/types.h>
 
-/* Queue Types */
-#define HFI_QUEUE_CMD			1
-#define HFI_QUEUE_MSG			2
-#define HFI_QUEUE_DBG			3
-
 #define HFI_QTBL_VERSION		0xFFFFFFFF
 
 /* System Commands */
-#define HFI_CMD_SYS_INIT		0x10001
-#define HFI_CMD_SYS_PC_PREP		0x10002
-#define HFI_CMD_SYS_SET_PROPERTY	0x10003
-#define HFI_CMD_SYS_PING		0x10005
+#define HFI_CMD_SYS_INIT			0x10001
+#define HFI_CMD_SYS_PC_PREP			0x10002
+#define HFI_CMD_SYS_SET_PROPERTY		0x10003
+#define HFI_CMD_SYS_PING			0x10005
 
 /* System Messages */
-#define HFI_MSG_SYS_INIT_DONE		0x10001
-#define HFI_MSG_SYS_PC_PREP_DONE	0x10002
-#define HFI_MSG_SYS_PING_ACK		0x10003
-#define HFI_MSG_SYS_DEBUG		0x10004
-#define HFI_MSG_EVENT_NOTIFY		0x10005
+#define HFI_MSG_SYS_INIT_DONE			0x10001
+#define HFI_MSG_SYS_PC_PREP_DONE		0x10002
+#define HFI_MSG_SYS_PING_ACK			0x10003
+#define HFI_MSG_SYS_DEBUG			0x10004
+#define HFI_MSG_EVENT_NOTIFY			0x10005
 
 /* IPE/BPS Commands */
 #define HFI_CMD_IPEBPS_CREATE_HANDLE		0x20001
@@ -47,33 +42,164 @@
 #define HFI_IPEBPS_CMD_DESTROY			0x08
 
 /* Device Types */
-#define HFI_DEV_TYPE_IPE		3
-#define HFI_DEV_TYPE_BPS		4
+#define HFI_DEV_TYPE_IPE			3
+#define HFI_DEV_TYPE_BPS			4
 
 /* Events */
-#define HFI_EVENT_SYS_ERROR		0x01
+#define HFI_EVENT_SYS_ERROR			0x01
 
 /* Property Types */
-#define HFI_PROP_SYS_UBWC_CONFIG	0x01
+#define HFI_PROP_SYS_DEBUG_CFG			0x01
+#define HFI_PROP_SYS_UBWC_CFG			0x02
+#define HFI_PROP_SYS_IMAGE_VER			0x03
+#define HFI_PROP_SYS_SUPPORTED			0x04
+#define HFI_PROP_SYS_IPEBPS_PC			0x05
+
+/*
+ * Debug levels
+ */
+#define HFI_DEBUG_MSG_LOW			BIT(0)
+#define HFI_DEBUG_MSG_MEDIUM			BIT(1)
+#define HFI_DEBUG_MSG_HIGH			BIT(2)
+#define HFI_DEBUG_MSG_ERROR			BIT(3)
+#define HFI_DEBUG_MSG_FATAL			BIT(4)
+#define HFI_DEBUG_MSG_PERF			BIT(5)
+
+/*
+ * Debug output modes
+ */
+#define HFI_DEBUG_MODE_QUEUE			0x00000001
+#define HFI_DEBUG_MODE_QDSS			0x00000002
+
+/*
+ * Handle types for CREATE_HANDLE
+ */
+#define HFI_HANDLE_TYPE_BPS			1
+#define HFI_HANDLE_TYPE_IPE			2
+
+/*
+ * Queue indexes
+ */
+enum {
+	HFI_Q_CMD_TYPE = 0,
+	HFI_Q_MSG_TYPE,
+	HFI_Q_DBG_TYPE,
+	HFI_Q_MAX,
+};
 
 /* Memory Sizes */
-#define HFI_QTBL_SIZE			SZ_1M
-#define HFI_CMD_Q_SIZE			SZ_1M
-#define HFI_MSG_Q_SIZE			SZ_1M
-#define HFI_DBG_Q_SIZE			SZ_1M
-#define HFI_SFR_SIZE			SZ_8K
-#define HFI_SHMEM_SIZE			SZ_8M
+#define HFI_QTBL_SIZE				SZ_1M
+#define HFI_CMD_Q_SIZE				SZ_1M
+#define HFI_MSG_Q_SIZE				SZ_1M
+#define HFI_DBG_Q_SIZE				SZ_1M
+#define HFI_SFR_LOG_SIZE			SZ_4K
 
-#define HFI_CMD_Q_DATA_SIZE		4096
-#define HFI_MSG_Q_DATA_SIZE		4096
-#define HFI_DBG_Q_DATA_SIZE		102400
+#define HFI_CMD_Q_DATA_SIZE			SZ_4K
+#define HFI_MSG_Q_DATA_SIZE			SZ_4K
+#define HFI_DBG_Q_DATA_SIZE			102400
+
+#define HFI_SHMEM_SIZE				SZ_1M
+#define HFI_FWUNCACHED_SIZE			(7 * SZ_1M)
+#define HFI_QDSS_SIZE				SZ_1M
+#define HFI_QTBL_SIZE				SZ_1M
+#define HFI_Q_SIZE				SZ_1M
+#define HFI_SFR_SIZE				SZ_8K
+#define HFI_SECHEAP_SIZE			SZ_1M
+
+/* General Purpose registers - offset 0x20 from CSR base */
+#define HFI_REG_FW_VERSION			0x20  /* GP0 - firmware writes version here */
+#define HFI_REG_HOST_ICP_MSG			0x24  /* GP1 - host to ICP message */
+#define HFI_REG_ICP_HOST_MSG			0x28  /* GP2 - ICP to host init response */
+#define HFI_REG_SHARED_MEM_PTR			0x30  /* GP4 - shared memory IOVA */
+#define HFI_REG_SHARED_MEM_SIZE			0x34  /* GP5 - shared memory size */
+#define HFI_REG_QTBL_PTR			0x38  /* GP6 - q table IOVA */
+#define HFI_REG_SECONDARY_HEAP_PTR		0x3C  /* GP7 - secondary heap IOVA */
+#define HFI_REG_SECONDARY_HEAP_SIZE		0x40  /* GP8 - secondary heap size */
+#define HFI_REG_RESERVED			0x44  /* GP9 - reserved/status */
+#define HFI_REG_SFR_PTR				0x48  /* GP10 - SFR buffer IOVA */
+#define HFI_REG_QDSS_IOVA			0x4C  /* GP11 - QDSS buffer IOVA */
+#define HFI_REG_QDSS_IOVA_SIZE			0x50  /* GP12 - QDSS buffer size */
+#define HFI_REG_IO_REGION_1_IOVA		0x54  /* GP13 - IO region 1 IOVA */
+#define HFI_REG_IO_REGION_1_SIZE		0x58  /* GP14 - IO region 1 size */
+#define HFI_REG_IO_REGION_2_IOVA		0x5C  /* GP15 - IO region 2 IOVA */
+#define HFI_REG_IO_REGION_2_SIZE		0x60  /* GP16 - IO region 2 size */
+#define HFI_REG_FWUNCACHED_IOVA			0x64  /* GP17 - FW uncached region IOVA */
+#define HFI_REG_FWUNCACHED_SIZE			0x68  /* GP18 - FW uncached region size */
+
+/* HFI constants */
+#define HFI_QUEUE_TABLE_VERSION			0xFFFFFFFF
+
+struct hfi_resources {
+	u32 shmem_size;
+	u32 qdss_size;
+	u32 fwuncached_size;
+	u32 secheap_size;
+	u32 q_tbl_size;
+	u32 qdata_size[HFI_Q_MAX];
+	u32 sfr_size;
+};
+
+struct icp_hfi_mem_region {
+	void *vaddr;
+	dma_addr_t dma_addr;
+	size_t size;
+};
+
+struct icp_hfi_mem {
+	/* These get their own allocations */
+	struct icp_hfi_mem_region shmem;
+	struct icp_hfi_mem_region qdss;
+	struct icp_hfi_mem_region fwuncached;
+
+	/* Pointers into the fwuncached region */
+	struct icp_hfi_mem_region secheap;
+	struct icp_hfi_mem_region q_tbl;
+	struct icp_hfi_mem_region q_data[HFI_Q_MAX];
+	struct icp_hfi_mem_region sfr;
+};
+
+struct icp_hfi_ops {
+	void (*raise_irq)(void *priv);
+};
+
+struct icp_hfi {
+	struct device *dev;
+	struct icp_hfi_mem hfi_mem;
+	const struct hfi_resources *res;
+
+	const struct icp_hfi_ops *ops;
+	void *priv;
+
+	/*
+	 * Queue Table Pointer
+	 * Points to hfi_q_tbl_hdr at hfi_mem.q_tbl.vaddr
+	 * Contains header + 4 x struct hfi_q_header
+	 */
+	struct hfi_q_tbl_hdr *q_tbl;
+
+	/*
+	* Synchronization
+	*/
+	struct mutex cmd_lock;
+	struct completion cmd_complete;
+
+	/*
+	 * State
+	 */
+	bool ready;         /* HFI fully initialized */
+	u32 fw_version;     /* From GP0 register after boot */
+	u32 api_version;    /* From INIT_DONE response */
+
+	/* Debug */
+	struct hfi_sfr *sfr;
+};
 
 /*
  * HFI Queue Header - CAMX compatible
  * Each field is padded to 64 bytes (16 u32s) for cache line alignment.
  * The firmware expects this exact layout.
  */
-struct hfi_queue_header {
+struct hfi_q_hdr {
 	u32 dummy0[15];
 	u32 status;
 	u32 dummy1[15];
@@ -102,20 +228,25 @@ struct hfi_queue_header {
 	u32 read_idx;
 	u32 dummy13[15];
 	u32 write_idx;
-	u32 dummy14[16];  /* 16 elements to pad structure to 960 bytes */
-};
+	u32 dummy14[15];
+} __packed;
 
-struct hfi_queue_table {
+struct hfi_q_tbl_hdr {
 	u32 version;
 	u32 size;
-	u32 qhdr0_offset;
-	u32 qhdr_size;
+	u32 q_hdr0_offset;
+	u32 q_hdr_size;
 	u32 num_queues;
-	u32 num_active;
-	struct hfi_queue_header q[];
-};
+	u32 num_active_queues;
+	struct hfi_q_hdr q_hdr[];
+} __packed;
 
 struct hfi_pkt_hdr {
+	u32 size;
+	u32 pkt_type;
+} __packed;
+
+struct hfi_cmd_sys_init {
 	u32 size;
 	u32 pkt_type;
 } __packed;
@@ -161,8 +292,9 @@ struct hfi_cmd_ubwc_cfg {
 struct hfi_cmd_create_handle {
 	u32 size;
 	u32 pkt_type;
-	u32 dev_type;
-	u32 user_data;
+	u32 handle_type;
+	u32 user_data0;
+	u32 user_data1;
 } __packed;
 
 struct hfi_msg_create_handle_ack {
@@ -170,6 +302,8 @@ struct hfi_msg_create_handle_ack {
 	u32 pkt_type;
 	u32 error;
 	u32 fw_handle;
+	u32 user_data0;
+	u32 user_data1;
 } __packed;
 
 struct hfi_cmd_async {
@@ -178,8 +312,8 @@ struct hfi_cmd_async {
 	u32 opcode;
 	u32 num_handles;
 	u32 fw_handle;
+	u64 user_data0;
 	u64 user_data1;
-	u64 user_data2;
 	u32 payload[];
 } __packed;
 
@@ -187,10 +321,43 @@ struct hfi_msg_async_ack {
 	u32 size;
 	u32 pkt_type;
 	u32 opcode;
+	u64 user_data0;
 	u64 user_data1;
-	u64 user_data2;
 	u32 error;
 } __packed;
+
+struct hfi_cmd_set_property {
+	u32 size;
+	u32 pkt_type;
+	u32 num_prop;
+	u32 prop_data[];
+} __packed;
+
+struct hfi_msg_debug {
+	u32 size;
+	u32 pkt_type;
+	u32 msg_type;
+	u32 msg_size;
+	u32 timestamp_hi;
+	u32 timestamp_lo;
+	u8  msg_data[];
+} __packed;
+
+struct hfi_debug_cfg {
+	u32 debug_config;
+	u32 debug_mode;
+} __packed;
+
+struct hfi_msg_debug_level {
+	struct hfi_cmd_set_property hdr;
+	u32 prop_id;
+	struct hfi_debug_cfg cfg;
+} __packed;
+
+struct hfi_sfr {
+	u32 size;
+	char msg[HFI_SFR_LOG_SIZE];
+};
 
 static inline u32 hfi_pkt_size(void *pkt)
 {
@@ -202,12 +369,12 @@ static inline u32 hfi_pkt_type(void *pkt)
 	return ((u32 *)pkt)[1];
 }
 
-static inline bool hfi_queue_empty(struct hfi_queue_header *q)
+static inline bool hfi_queue_empty(struct hfi_q_hdr *q)
 {
 	return READ_ONCE(q->read_idx) == READ_ONCE(q->write_idx);
 }
 
-static inline u32 hfi_queue_free(struct hfi_queue_header *q)
+static inline u32 hfi_queue_free(struct hfi_q_hdr *q)
 {
 	u32 ri = READ_ONCE(q->read_idx);
 	u32 wi = READ_ONCE(q->write_idx);
@@ -215,5 +382,17 @@ static inline u32 hfi_queue_free(struct hfi_queue_header *q)
 
 	return q->q_size - used - 1;
 }
+
+/* Queue management */
+int icp_hfi_init_queues(struct icp_hfi *hfi);
+void icp_hfi_deinit_queues(struct icp_hfi *hfi);
+
+/* ISR support - called from threaded IRQ handler */
+void icp_hfi_flush_debug_queue(struct icp_hfi *hfi);
+bool icp_hfi_process_msg_queue(struct icp_hfi *hfi);
+
+/* Core operations */
+int icp_hfi_core_init(struct icp_hfi *hfi);
+void icp_hfi_dump_sfr(struct icp_hfi *hfi);
 
 #endif /* __CAMSS_ICP_HFI_H__ */

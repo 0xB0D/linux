@@ -24,7 +24,8 @@
 #include <linux/pm_runtime.h>
 #include <linux/soc/qcom/mdt_loader.h>
 
-#define ICP_PAS_ID			33
+#include "camss-icp.h"
+#include "camss-icp-hfi.h"
 
 /* CSR register offsets */
 #define ICP_CSR_HW_VERSION		0x00
@@ -32,121 +33,27 @@
 #define ICP_CSR_DBG_STATUS		0x44
 #define ICP_CSR_DBG_CTRL		0x48
 
-/* General Purpose registers - offset 0x20 from CSR base */
-#define HFI_REG_FW_VERSION		0x20  /* GP0 - firmware writes version here */
-#define HFI_REG_HOST_ICP_MSG		0x24  /* GP1 - host to ICP message */
-#define HFI_REG_ICP_HOST_MSG		0x28  /* GP2 - ICP to host init response */
-#define HFI_REG_SHARED_MEM_PTR		0x30  /* GP4 - shared memory IOVA */
-#define HFI_REG_SHARED_MEM_SIZE		0x34  /* GP5 - shared memory size */
-#define HFI_REG_QTBL_PTR		0x38  /* GP6 - queue table IOVA */
-#define HFI_REG_SECONDARY_HEAP_PTR	0x3C  /* GP7 - secondary heap IOVA */
-#define HFI_REG_SECONDARY_HEAP_SIZE	0x40  /* GP8 - secondary heap size */
-#define HFI_REG_RESERVED		0x44  /* GP9 - reserved/status */
-#define HFI_REG_SFR_PTR			0x48  /* GP10 - SFR buffer IOVA */
-#define HFI_REG_QDSS_IOVA		0x4C  /* GP11 - QDSS buffer IOVA */
-#define HFI_REG_QDSS_IOVA_SIZE		0x50  /* GP12 - QDSS buffer size */
-#define HFI_REG_IO_REGION_1_IOVA	0x54  /* GP13 - IO region 1 IOVA */
-#define HFI_REG_IO_REGION_1_SIZE	0x58  /* GP14 - IO region 1 size */
-#define HFI_REG_IO_REGION_2_IOVA	0x5C  /* GP15 - IO region 2 IOVA */
-#define HFI_REG_IO_REGION_2_SIZE	0x60  /* GP16 - IO region 2 size */
-#define HFI_REG_FWUNCACHED_IOVA		0x64  /* GP17 - FW uncached region IOVA */
-#define HFI_REG_FWUNCACHED_SIZE		0x68  /* GP18 - FW uncached region size */
-
 /* CIRQ register offsets */
 #define CIRQ_OB_MASK			0x00
 #define CIRQ_OB_STATUS			0x04
 #define CIRQ_OB_CLEAR			0x08
+#define CIRQ_HOST2ICPINT		0x124
 
 /* CIRQ bits */
 #define CIRQ_ICP2HOSTINT		BIT(0)
 #define CIRQ_WDT_BITE_WS0		BIT(6)
 
-/* HFI constants */
-#define HFI_QUEUE_TABLE_VERSION		0xFFFFFFFF
-#define HFI_Q_CMD_TYPE			0
-#define HFI_Q_MSG_TYPE			1
-#define HFI_Q_DBG_TYPE			2
+#define ICP_CLK_MAX			4
 
-/* Memory sizes - matching CAMX */
-#define HFI_SHMEM_SIZE			SZ_1M
-#define HFI_FWUNCACHED_SIZE		(7 * SZ_1M)
-#define HFI_QDSS_SIZE			SZ_1M
-#define HFI_QTBL_SIZE			SZ_1M
-#define HFI_Q_SIZE			SZ_1M
-#define HFI_SFR_SIZE			SZ_8K
-#define HFI_SECHEAP_SIZE		SZ_1M
+#define POLLING_SLEEP_US		1000
+#define POLLING_TIMEOUT_US		20000
 
-/*
- * HFI Queue Header - CAMX compatible
- * Each field is padded to 64 bytes (16 u32s) for cache line alignment.
- * Layout: 15 dummy u32s, then 1 real field, repeated for each field.
- * Final dummy14[15] after write_idx.
- * Total size: 956 bytes (0x3BC)
- */
-struct hfi_queue_header {
-	u32 dummy0[15];
-	u32 status;
-	u32 dummy1[15];
-	u32 start_addr;
-	u32 dummy2[15];
-	u32 type;
-	u32 dummy3[15];
-	u32 q_size;
-	u32 dummy4[15];
-	u32 pkt_size;
-	u32 dummy5[15];
-	u32 pkt_drop_cnt;
-	u32 dummy6[15];
-	u32 rx_wm;
-	u32 dummy7[15];
-	u32 tx_wm;
-	u32 dummy8[15];
-	u32 rx_req;
-	u32 dummy9[15];
-	u32 tx_req;
-	u32 dummy10[15];
-	u32 rx_irq_status;
-	u32 dummy11[15];
-	u32 tx_irq_status;
-	u32 dummy12[15];
-	u32 read_idx;
-	u32 dummy13[15];
-	u32 write_idx;
-	u32 dummy14[15];
-} __packed;
-
-/* Queue table header - 24 bytes */
-struct hfi_queue_table_header {
-	u32 version;
-	u32 size;
-	u32 qhdr0_offset;
-	u32 qhdr_size;
-	u32 num_queues;
-	u32 num_active_queues;
-} __packed;
-
-/* Memory region tracking */
-struct icp_mem_region {
-	void *vaddr;
-	dma_addr_t dma_addr;
-	size_t size;
+struct camss_icp_resources {
+	int pas_id;
+	const char * const clk_names[ICP_CLK_MAX];
+	int clk_num;
+	struct hfi_resources hfi_res;
 };
-
-/* HFI memory layout */
-struct icp_hfi_mem {
-	struct icp_mem_region shmem;
-	struct icp_mem_region fwuncached;  /* Contains QTBL, queues, SFR */
-	struct icp_mem_region qdss;
-	
-	/* Pointers into fwuncached region */
-	void *qtbl_vaddr;
-	void *cmd_q_vaddr;
-	void *msg_q_vaddr;
-	void *dbg_q_vaddr;
-	void *sfr_vaddr;
-};
-
-#define ICP_NUM_CLOCKS 13
 
 struct camss_icp {
 	struct device *dev;
@@ -154,184 +61,35 @@ struct camss_icp {
 	void __iomem *cirq_base;
 	int irq;
 	
-	struct clk_bulk_data clocks[ICP_NUM_CLOCKS];
-	int num_clocks;
-	
+	struct clk_bulk_data clks[ICP_CLK_MAX];
+
 	struct dev_pm_domain_list *pd_list;
 	struct icc_path *icc_path;
-	
-	struct icp_hfi_mem hfi_mem;
-	
+
+	struct icp_hfi hfi;
+
 	phys_addr_t fw_phys;
 	size_t fw_size;
-	bool use_pil;
+
+	const struct camss_icp_resources *icp_res;
 };
 
-static const char * const icp_clock_names[ICP_NUM_CLOCKS] = {
-	"ahb", "core", "debug_xo",
-	"bps_ahb", "bps_fast_ahb", "bps", "cpas_bps",
-	"ipe_ahb", "ipe_nps_fast_ahb", "ipe_pps_fast_ahb",
-	"ipe_nps", "ipe_pps", "cpas_ipe"
-};
-
-/* Simple DMA allocation - just use dma_alloc_coherent */
-static int icp_alloc_dma(struct camss_icp *icp, struct icp_mem_region *region,
-			 size_t size)
+/*
+ * Raise interrupt to firmware - called by HFI layer after CMD_Q write
+ */
+static void icp_raise_irq(void *priv)
 {
-	region->vaddr = dma_alloc_coherent(icp->dev, size, &region->dma_addr,
-					   GFP_KERNEL);
-	if (!region->vaddr) {
-		dev_err(icp->dev, "dma_alloc_coherent failed: size=0x%zx\n", size);
-		return -ENOMEM;
-	}
+	struct camss_icp *icp = priv;
 
-	region->size = size;
-
-	dev_info(icp->dev, "Allocated: vaddr=%px dma_addr=0x%llx size=0x%zx\n",
-		 region->vaddr, (u64)region->dma_addr, size);
-
-	return 0;
-}
-
-static void icp_free_dma(struct camss_icp *icp, struct icp_mem_region *region)
-{
-	if (region->vaddr) {
-		dma_free_coherent(icp->dev, region->size, region->vaddr,
-				  region->dma_addr);
-		region->vaddr = NULL;
-	}
-}
-
-/* Initialize HFI queues */
-static int icp_hfi_queue_init(struct camss_icp *icp)
-{
-	struct hfi_queue_table_header *qtbl;
-	struct hfi_queue_header *qhdr;
-	void *base;
-	u32 *sfr;
-	int ret;
-
-	dev_info(icp->dev, "HFI struct sizes: q_hdr=%zu qtbl_hdr=%zu (expect 956, 24)\n",
-		 sizeof(struct hfi_queue_header),
-		 sizeof(struct hfi_queue_table_header));
-
-	/* Allocate SHMEM */
-	ret = icp_alloc_dma(icp, &icp->hfi_mem.shmem, HFI_SHMEM_SIZE);
-	if (ret)
-		return ret;
-
-	/* Allocate FwUncached - single 7MB block for all HFI structures */
-	ret = icp_alloc_dma(icp, &icp->hfi_mem.fwuncached, HFI_FWUNCACHED_SIZE);
-	if (ret)
-		goto free_shmem;
-
-	/* Allocate QDSS */
-	ret = icp_alloc_dma(icp, &icp->hfi_mem.qdss, HFI_QDSS_SIZE);
-	if (ret)
-		goto free_fwuncached;
-
-	/*
-	 * Carve sub-regions from FwUncached:
-	 *   +0x000000: SecHeap (1MB)
-	 *   +0x100000: QTBL (1MB)
-	 *   +0x200000: CMD_Q (1MB)
-	 *   +0x300000: MSG_Q (1MB)
-	 *   +0x400000: DBG_Q (1MB)
-	 *   +0x500000: SFR (8KB)
-	 */
-	base = icp->hfi_mem.fwuncached.vaddr;
-	icp->hfi_mem.qtbl_vaddr = base + 0x100000;
-	icp->hfi_mem.cmd_q_vaddr = base + 0x200000;
-	icp->hfi_mem.msg_q_vaddr = base + 0x300000;
-	icp->hfi_mem.dbg_q_vaddr = base + 0x400000;
-	icp->hfi_mem.sfr_vaddr = base + 0x500000;
-
-	dev_info(icp->dev, "HFI memory layout:\n");
-	dev_info(icp->dev, "  SHMEM:      dma=0x%llx size=0x%zx\n",
-		 (u64)icp->hfi_mem.shmem.dma_addr, icp->hfi_mem.shmem.size);
-	dev_info(icp->dev, "  FwUncached: dma=0x%llx size=0x%zx\n",
-		 (u64)icp->hfi_mem.fwuncached.dma_addr, icp->hfi_mem.fwuncached.size);
-	dev_info(icp->dev, "  QDSS:       dma=0x%llx size=0x%zx\n",
-		 (u64)icp->hfi_mem.qdss.dma_addr, icp->hfi_mem.qdss.size);
-
-	/* Initialize SFR - first u32 is capacity */
-	sfr = icp->hfi_mem.sfr_vaddr;
-	*sfr = HFI_SFR_SIZE - sizeof(u32);
-
-	/* Initialize queue table header */
-	qtbl = icp->hfi_mem.qtbl_vaddr;
-	memset(qtbl, 0, sizeof(*qtbl) + 4 * sizeof(struct hfi_queue_header));
-
-	qtbl->version = HFI_QUEUE_TABLE_VERSION;
-	qtbl->size = sizeof(struct hfi_queue_table_header) + 4 * sizeof(struct hfi_queue_header);
-	qtbl->qhdr0_offset = sizeof(struct hfi_queue_table_header);
-	qtbl->qhdr_size = sizeof(struct hfi_queue_header);
-	qtbl->num_queues = 3;
-	qtbl->num_active_queues = 3;
-
-	/* CMD queue header */
-	qhdr = (struct hfi_queue_header *)((u8 *)qtbl + qtbl->qhdr0_offset);
-	qhdr->status = 1;
-	qhdr->start_addr = icp->hfi_mem.fwuncached.dma_addr + 0x200000;
-	qhdr->type = HFI_Q_CMD_TYPE;
-	qhdr->q_size = HFI_Q_SIZE / sizeof(u32);
-
-	/* MSG queue header */
-	qhdr = (struct hfi_queue_header *)((u8 *)qtbl + qtbl->qhdr0_offset + qtbl->qhdr_size);
-	qhdr->status = 1;
-	qhdr->start_addr = icp->hfi_mem.fwuncached.dma_addr + 0x300000;
-	qhdr->type = HFI_Q_MSG_TYPE;
-	qhdr->q_size = HFI_Q_SIZE / sizeof(u32);
-
-	/* DBG queue header */
-	qhdr = (struct hfi_queue_header *)((u8 *)qtbl + qtbl->qhdr0_offset + 2 * qtbl->qhdr_size);
-	qhdr->status = 1;
-	qhdr->start_addr = icp->hfi_mem.fwuncached.dma_addr + 0x400000;
-	qhdr->type = HFI_Q_DBG_TYPE;
-	qhdr->q_size = HFI_Q_SIZE / sizeof(u32);
-
-	dev_info(icp->dev, "QTBL initialized: ver=0x%x size=0x%x\n",
-		 qtbl->version, qtbl->size);
-
-	wmb();
-	return 0;
-
-free_fwuncached:
-	icp_free_dma(icp, &icp->hfi_mem.fwuncached);
-free_shmem:
-	icp_free_dma(icp, &icp->hfi_mem.shmem);
-	return ret;
-}
-
-static void icp_hfi_queue_deinit(struct camss_icp *icp)
-{
-	icp_free_dma(icp, &icp->hfi_mem.qdss);
-	icp_free_dma(icp, &icp->hfi_mem.fwuncached);
-	icp_free_dma(icp, &icp->hfi_mem.shmem);
-}
-
-/* Dump GP registers for debugging */
-static void icp_dump_gp_registers(struct camss_icp *icp, const char *label)
-{
-	u32 regs[20];
-	int i;
-
-	dev_info(icp->dev, "=== %s ===\n", label);
-	dev_info(icp->dev, "Raw CSR offsets 0x20-0x6C (GP registers):\n");
-
-	for (i = 0; i < 20; i++)
-		regs[i] = readl(icp->csr_base + 0x20 + i * 4);
-
-	for (i = 0; i < 20; i += 4)
-		dev_info(icp->dev, "  [0x%02x]: %08x %08x %08x %08x\n",
-			 0x20 + i * 4, regs[i], regs[i+1], regs[i+2], regs[i+3]);
+	writel(1, icp->cirq_base + CIRQ_HOST2ICPINT);
 }
 
 /* Load firmware */
 static int icp_load_firmware(struct camss_icp *icp)
 {
-	struct device_node *node;
+	const struct camss_icp_resources *icp_res = icp->icp_res;
 	const struct firmware *fw;
+	struct device_node *node;
 	struct resource res;
 	const char *fw_name;
 	char fw_path[64];
@@ -372,7 +130,7 @@ static int icp_load_firmware(struct camss_icp *icp)
 		return -ENOMEM;
 	}
 
-	ret = qcom_mdt_load(icp->dev, fw, fw_path, ICP_PAS_ID, vaddr,
+	ret = qcom_mdt_load(icp->dev, fw, fw_path, icp_res->pas_id, vaddr,
 			    res.start, resource_size(&res), NULL);
 	iounmap(vaddr);
 	release_firmware(fw);
@@ -386,29 +144,120 @@ static int icp_load_firmware(struct camss_icp *icp)
 	return ret;
 }
 
-static irqreturn_t icp_irq_handler(int irq, void *data)
+static irqreturn_t camss_icp_isr_thread(int irq, void *data)
+{
+	struct camss_icp *icp = data;
+	u32 status;
+
+	/* Re-read status for logging */
+	status = readl(icp->cirq_base + CIRQ_OB_STATUS);
+
+	dev_dbg(icp->dev, "IRQ thread: status=0x%x\n", status);
+
+	if (status & CIRQ_WDT_BITE_WS0) {
+		dev_err(icp->dev, "ICP watchdog bite!\n");
+		icp_hfi_dump_sfr(&icp->hfi);
+	}
+
+	/* Process message queue - signals waiters if data present */
+	icp_hfi_process_msg_queue(&icp->hfi);
+
+	/* Flush debug queue - async debug messages */
+	icp_hfi_flush_debug_queue(&icp->hfi);
+
+	return IRQ_HANDLED;
+}
+
+static irqreturn_t camss_icp_isr(int irq, void *data)
 {
 	struct camss_icp *icp = data;
 	u32 status;
 
 	status = readl(icp->cirq_base + CIRQ_OB_STATUS);
+	if (!status)
+		return IRQ_NONE;
+
 	writel(status, icp->cirq_base + CIRQ_OB_CLEAR);
 
-	dev_info(icp->dev, "IRQ: status=0x%x\n", status);
-
-	return IRQ_HANDLED;
+	return IRQ_WAKE_THREAD;
 }
+
+/* Dump GP registers for debugging */
+void icp_dump_gp_regs(struct camss_icp *icp, const char *label)
+{
+	u32 regs[20];
+	int i;
+
+	dev_info(icp->dev, "=== %s ===\n", label);
+	dev_info(icp->dev, "Raw CSR offsets 0x20-0x6C (GP registers):\n");
+
+	for (i = 0; i < 20; i++)
+		regs[i] = readl(icp->csr_base + 0x20 + i * 4);
+
+	for (i = 0; i < 20; i += 4)
+		dev_info(icp->dev, "  [0x%02x]: %08x %08x %08x %08x\n",
+			 0x20 + i * 4, regs[i], regs[i+1], regs[i+2], regs[i+3]);
+}
+
+void icp_hfi_latch_regs(struct camss_icp *icp)
+{
+	struct icp_hfi *hfi = &icp->hfi;
+	struct device *dev = hfi->dev;
+
+	/* Program HFI registers with actual DMA addresses */
+	dev_info(dev, "Programming HFI registers with DMA addresses:\n");
+	dev_info(dev, "  SHMEM=0x%llx\n", (u64)hfi->hfi_mem.shmem.dma_addr);
+	dev_info(dev, "  QDSS=0x%llx FWUNCACHED=0x%llx\n", (u64)hfi->hfi_mem.qdss.dma_addr,
+							   (u64)hfi->hfi_mem.fwuncached.dma_addr);
+	dev_info(dev, "  SECHEAP=0x%llx QTBL=0x%llx\n", (u64)hfi->hfi_mem.secheap.dma_addr,
+							(u64)hfi->hfi_mem.q_tbl.dma_addr);
+	dev_info(dev, "  CMD_Q=0x%llx MSQ_Q=0x%llx\n", (u64)hfi->hfi_mem.q_data[HFI_Q_CMD_TYPE].dma_addr,
+						       (u64)hfi->hfi_mem.q_data[HFI_Q_MSG_TYPE].dma_addr);
+	dev_info(dev, "  DBG_Q=0x%llx SFR=0x%llx\n", (u64)hfi->hfi_mem.q_data[HFI_Q_DBG_TYPE].dma_addr,
+						     (u64)hfi->hfi_mem.sfr.dma_addr);
+
+	/* Shared memory */
+	writel(hfi->hfi_mem.shmem.dma_addr, icp->csr_base + HFI_REG_SHARED_MEM_PTR);
+	writel(hfi->hfi_mem.shmem.size, icp->csr_base + HFI_REG_SHARED_MEM_SIZE);
+
+	/* QDSS */
+	writel(hfi->hfi_mem.qdss.dma_addr, icp->csr_base + HFI_REG_QDSS_IOVA);
+	writel(HFI_QDSS_SIZE, icp->csr_base + HFI_REG_QDSS_IOVA_SIZE);
+
+	/* FW Uncached */
+	writel(hfi->hfi_mem.fwuncached.dma_addr, icp->csr_base + HFI_REG_FWUNCACHED_IOVA);
+	writel(HFI_FWUNCACHED_SIZE, icp->csr_base + HFI_REG_FWUNCACHED_SIZE);
+
+	/* Sec heap */
+	writel(hfi->hfi_mem.secheap.dma_addr, icp->csr_base + HFI_REG_SECONDARY_HEAP_PTR);
+	writel(HFI_SECHEAP_SIZE, icp->csr_base + HFI_REG_SECONDARY_HEAP_SIZE);
+
+	/* QTBL - header describing HFI queues */
+	writel(hfi->hfi_mem.q_tbl.dma_addr, icp->csr_base + HFI_REG_QTBL_PTR);
+
+	/* SFR buffer */
+	writel(hfi->hfi_mem.sfr.dma_addr, icp->csr_base + HFI_REG_SFR_PTR);
+
+	/* IO regions - use standard CAMX values */
+	writel(0x10c00000, icp->csr_base + HFI_REG_IO_REGION_1_IOVA);
+	writel(0xcf400000, icp->csr_base + HFI_REG_IO_REGION_1_SIZE);
+	writel(0xe0800000, icp->csr_base + HFI_REG_IO_REGION_2_IOVA);
+	writel(0x1e700000, icp->csr_base + HFI_REG_IO_REGION_2_SIZE);
+}
+
+/* HFI operations */
+static const struct icp_hfi_ops hfi_ops = {
+	.raise_irq = icp_raise_irq,
+};
 
 static int icp_boot(struct camss_icp *icp)
 {
-	dma_addr_t shmem_iova, fwuncached_iova, qdss_iova;
-	dma_addr_t qtbl_iova, sfr_iova;
-	unsigned long timeout;
-	u32 hw_version, status;
+	const struct camss_icp_resources *icp_res = icp->icp_res;
+	u32 hw_version, data;
 	int ret;
 
 	/* Enable clocks */
-	ret = clk_bulk_prepare_enable(icp->num_clocks, icp->clocks);
+	ret = clk_bulk_prepare_enable(icp_res->clk_num, icp->clks);
 	if (ret) {
 		dev_err(icp->dev, "Failed to enable clocks: %d\n", ret);
 		return ret;
@@ -437,110 +286,74 @@ static int icp_boot(struct camss_icp *icp)
 		goto err_clk;
 
 	/* Allocate HFI queues */
-	ret = icp_hfi_queue_init(icp);
+	ret = icp_hfi_init_queues(&icp->hfi);
 	if (ret)
 		goto err_clk;
 
 	/* Start firmware via TrustZone */
-	dev_info(icp->dev, "Starting ICP via TrustZone\n");
-	ret = qcom_scm_pas_auth_and_reset(ICP_PAS_ID);
+	dev_dbg(icp->dev, "Starting ICP via TrustZone\n");
+	ret = qcom_scm_pas_auth_and_reset(icp_res->pas_id);
 	if (ret) {
 		dev_err(icp->dev, "TZ auth_and_reset failed: %d\n", ret);
 		goto err_hfi;
 	}
-	icp->use_pil = true;
 
-	msleep(100);
+	/* Wait for firmware to boot */
+	usleep_range(5000, 51000);
 
-	/* Get actual DMA addresses for GP registers */
-	shmem_iova = icp->hfi_mem.shmem.dma_addr;
-	fwuncached_iova = icp->hfi_mem.fwuncached.dma_addr;
-	qdss_iova = icp->hfi_mem.qdss.dma_addr;
-	qtbl_iova = fwuncached_iova + 0x100000;
-	sfr_iova = fwuncached_iova + 0x500000;
-
-	/* Program HFI registers with actual DMA addresses */
-	dev_info(icp->dev, "Programming HFI registers with DMA addresses:\n");
-	dev_info(icp->dev, "  SHMEM=0x%llx QTBL=0x%llx\n", (u64)shmem_iova, (u64)qtbl_iova);
-	dev_info(icp->dev, "  SECHEAP=0x%llx SFR=0x%llx\n", (u64)fwuncached_iova, (u64)sfr_iova);
-	dev_info(icp->dev, "  QDSS=0x%llx\n", (u64)qdss_iova);
-
-	writel(shmem_iova, icp->csr_base + HFI_REG_SHARED_MEM_PTR);
-	writel(0x0FC00000, icp->csr_base + HFI_REG_SHARED_MEM_SIZE);  /* 252MB range */
-	writel(qtbl_iova, icp->csr_base + HFI_REG_QTBL_PTR);
-	writel(fwuncached_iova, icp->csr_base + HFI_REG_SECONDARY_HEAP_PTR);
-	writel(HFI_SECHEAP_SIZE, icp->csr_base + HFI_REG_SECONDARY_HEAP_SIZE);
-	writel(sfr_iova, icp->csr_base + HFI_REG_SFR_PTR);
-	writel(qdss_iova, icp->csr_base + HFI_REG_QDSS_IOVA);
-	writel(HFI_QDSS_SIZE, icp->csr_base + HFI_REG_QDSS_IOVA_SIZE);
-
-	/* IO regions - use standard CAMX values */
-	writel(0x10c00000, icp->csr_base + HFI_REG_IO_REGION_1_IOVA);
-	writel(0xcf400000, icp->csr_base + HFI_REG_IO_REGION_1_SIZE);
-	writel(0xe0800000, icp->csr_base + HFI_REG_IO_REGION_2_IOVA);
-	writel(0x1e700000, icp->csr_base + HFI_REG_IO_REGION_2_SIZE);
-
-	writel(fwuncached_iova, icp->csr_base + HFI_REG_FWUNCACHED_IOVA);
-	writel(HFI_FWUNCACHED_SIZE, icp->csr_base + HFI_REG_FWUNCACHED_SIZE);
-
-	wmb();
-
-	icp_dump_gp_registers(icp, "DIAG1: Before INIT_REQUEST");
+	/* Program HFI pointers after bootup */
+	icp_hfi_latch_regs(icp);
 
 	/* Signal init request */
-	dev_info(icp->dev, "Signaling host init request\n");
+	dev_dbg(icp->dev, "Signaling host init request\n");
 	writel(1, icp->csr_base + HFI_REG_ICP_HOST_MSG);
-	wmb();
 
-	msleep(10);
-	icp_dump_gp_registers(icp, "DIAG2: 10ms after INIT_REQUEST");
+	ret = readl_poll_timeout(icp->csr_base + HFI_REG_ICP_HOST_MSG,
+				data, data & 1,
+				POLLING_SLEEP_US, POLLING_TIMEOUT_US);
 
-	/* Wait for firmware response */
-	timeout = jiffies + msecs_to_jiffies(2000);
-	while (time_before(jiffies, timeout)) {
-		status = readl(icp->csr_base + HFI_REG_ICP_HOST_MSG);
-		if (status == 1) {
-			dev_info(icp->dev, "Firmware initialized successfully!\n");
-			return 0;
-		}
-		msleep(10);
+	if (ret < 0) {
+		dev_err(icp->dev, "Firmware init timeout\n");
+		icp_dump_gp_regs(icp, "TIMEOUT");
+		icp_hfi_dump_sfr(&icp->hfi);
+		ret = -ETIMEDOUT;
+		goto err_hfi;
 	}
 
-	dev_err(icp->dev, "Firmware init timeout\n");
-	icp_dump_gp_registers(icp, "DIAG3: TIMEOUT");
+	dev_info(icp->dev, "Firmware initialized successfully!\n");
 
-	/* Check SFR for crash message */
-	{
-		u32 *sfr = icp->hfi_mem.sfr_vaddr;
-		u32 sfr_size = *sfr;
-		if (sfr_size > 0 && sfr_size < HFI_SFR_SIZE) {
-			char *msg = (char *)(sfr + 1);
-			dev_err(icp->dev, "SFR: %.*s\n", sfr_size, msg);
-		}
-	}
-
-	ret = -ETIMEDOUT;
-
+	return 0;
 err_hfi:
-	icp_hfi_queue_deinit(icp);
+	icp_hfi_deinit_queues(&icp->hfi);
 err_clk:
 	if (icp->icc_path)
 		icc_set_bw(icp->icc_path, 0, 0);
-	clk_bulk_disable_unprepare(icp->num_clocks, icp->clocks);
+	clk_bulk_disable_unprepare(icp_res->clk_num, icp->clks);
 	return ret;
 }
 
 static int camss_icp_probe(struct platform_device *pdev)
 {
 	struct dev_pm_domain_attach_data pd_data = { .pd_flags = PD_FLAG_DEV_LINK_ON };
+	const struct camss_icp_resources *icp_res;
 	struct camss_icp *icp;
 	int ret, i;
+
+	icp_res = of_device_get_match_data(&pdev->dev);
+	if (!icp_res)
+		return -EINVAL;
 
 	icp = devm_kzalloc(&pdev->dev, sizeof(*icp), GFP_KERNEL);
 	if (!icp)
 		return -ENOMEM;
 
 	icp->dev = &pdev->dev;
+	icp->icp_res = icp_res;
+	icp->hfi.res = &icp_res->hfi_res;
+	icp->hfi.ops = &hfi_ops;
+	icp->hfi.dev = icp->dev;
+	icp->hfi.priv = icp;
+
 	platform_set_drvdata(pdev, icp);
 
 	icp->csr_base = devm_platform_ioremap_resource_byname(pdev, "csr");
@@ -561,35 +374,27 @@ static int camss_icp_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "Failed to attach power domains: %d\n", ret);
 		return ret;
 	}
-	dev_info(&pdev->dev, "Attached %d power domains\n", ret > 0 ? ret : 1);
+	dev_dbg(&pdev->dev, "Attached %d power domains\n", ret > 0 ? ret : 1);
 
 	/* Reserved memory for HFI */
 	ret = of_reserved_mem_device_init_by_idx(&pdev->dev, pdev->dev.of_node, 1);
-	if (ret && ret != -ENODEV)
-		dev_warn(&pdev->dev, "Failed to init reserved memory: %d\n", ret);
-	else if (ret == 0)
-		dev_info(&pdev->dev, "Using camera_icp_mem reserved memory\n");
+	if (ret && ret != -ENODEV) {
+		dev_err(&pdev->dev, "Failed to init reserved memory: %d\n", ret);
+		return ret;
+	}
+
+	dev_dbg(&pdev->dev, "Using camera_icp_mem reserved memory\n");
 
 	/* Clocks */
-	for (i = 0; i < ICP_NUM_CLOCKS; i++)
-		icp->clocks[i].id = icp_clock_names[i];
+	for (i = 0; i < icp_res->clk_num; i++)
+		icp->clks[i].id = icp_res->clk_names[i];
 
-	ret = devm_clk_bulk_get_optional(&pdev->dev, ICP_NUM_CLOCKS, icp->clocks);
+	ret = devm_clk_bulk_get(&pdev->dev, icp_res->clk_num, icp->clks);
 	if (ret) {
 		dev_err(&pdev->dev, "Failed to get clocks: %d\n", ret);
 		goto err_pd;
 	}
 
-	icp->num_clocks = 0;
-	for (i = 0; i < ICP_NUM_CLOCKS; i++) {
-		if (icp->clocks[i].clk) {
-			dev_info(&pdev->dev, "Got clock: %s\n", icp_clock_names[i]);
-			icp->num_clocks = i + 1;
-		}
-	}
-	dev_info(&pdev->dev, "Loaded %d clocks\n", icp->num_clocks);
-
-	/* Interconnect */
 	icp->icc_path = devm_of_icc_get(&pdev->dev, "mem");
 	if (IS_ERR(icp->icc_path)) {
 		if (PTR_ERR(icp->icc_path) != -ENODATA) {
@@ -598,21 +403,24 @@ static int camss_icp_probe(struct platform_device *pdev)
 		}
 		icp->icc_path = NULL;
 	}
-
-	/* IRQ */
-	ret = devm_request_irq(&pdev->dev, icp->irq, icp_irq_handler,
-			       IRQF_TRIGGER_RISING, "camss-icp", icp);
+dev_info(&pdev->dev, "0xB0D requesting irq %d\n", icp->irq);
+	ret = devm_request_threaded_irq(&pdev->dev, icp->irq, camss_icp_isr,
+					camss_icp_isr_thread,
+					IRQF_TRIGGER_RISING | IRQF_ONESHOT,
+					"camss-icp", icp);
 	if (ret) {
 		dev_err(&pdev->dev, "Failed to request IRQ: %d\n", ret);
 		goto err_pd;
 	}
 
-	/* Boot! */
 	ret = icp_boot(icp);
 	if (ret)
 		goto err_pd;
 
-	dev_info(&pdev->dev, "ICP probed successfully\n");
+	ret = icp_hfi_core_init(&icp->hfi);
+	if (ret)
+		goto err_pd;
+
 	return 0;
 
 err_pd:
@@ -624,23 +432,51 @@ err_pd:
 static void camss_icp_remove(struct platform_device *pdev)
 {
 	struct camss_icp *icp = platform_get_drvdata(pdev);
+	const struct camss_icp_resources *icp_res;
 
-	if (icp->use_pil)
-		qcom_scm_pas_shutdown(ICP_PAS_ID);
+	icp_res = icp->icp_res;
+	qcom_scm_pas_shutdown(icp_res->pas_id);
 
-	icp_hfi_queue_deinit(icp);
+	icp_hfi_deinit_queues(&icp->hfi);
 
 	if (icp->icc_path)
 		icc_set_bw(icp->icc_path, 0, 0);
 
-	clk_bulk_disable_unprepare(icp->num_clocks, icp->clocks);
+	clk_bulk_disable_unprepare(icp_res->clk_num, icp->clks);
 
 	if (icp->pd_list)
 		dev_pm_domain_detach_list(icp->pd_list);
 }
 
+struct camss_icp_resources x1e80100_icp_res = {
+	.pas_id = 33,
+	.clk_names = { "ahb", "core", "debug_xo" },
+	.clk_num = 3,
+	.hfi_res = {
+		.shmem_size = SZ_1M,	 // change to 0x0FC00000 per downstream 
+		.qdss_size = SZ_1M,
+		.fwuncached_size = 7 * SZ_1M,
+		/*
+		 * Carve sub-regions from FwUncached:
+		 * Over-allocate as CamX does for now.
+		 *   +0x000000: SecHeap (1MB)
+		 *   +0x100000: QTBL (1MB)
+		 *   +0x200000: CMD_Q (1MB)
+		 *   +0x300000: MSG_Q (1MB)
+		 *   +0x400000: DBG_Q (1MB)
+		 *   +0x500000: SFR (1MB alloc 4KB used)
+		 */
+		.secheap_size = SZ_1M,
+		.q_tbl_size = SZ_1M,
+		.qdata_size[HFI_Q_CMD_TYPE] = SZ_1M,
+		.qdata_size[HFI_Q_MSG_TYPE] = SZ_1M,
+		.qdata_size[HFI_Q_DBG_TYPE] = SZ_1M,
+		.sfr_size = SZ_1M,
+	},
+};
+
 static const struct of_device_id camss_icp_of_match[] = {
-	{ .compatible = "qcom,x1e80100-camss-icp" },
+	{ .compatible = "qcom,x1e80100-camss-icp", .data = &x1e80100_icp_res},
 	{ }
 };
 MODULE_DEVICE_TABLE(of, camss_icp_of_match);
