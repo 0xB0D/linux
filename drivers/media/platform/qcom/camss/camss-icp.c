@@ -4,7 +4,7 @@
  * 
  * Simplified version: uses DMA addresses directly without remapping
  */
-
+#define DEBUG
 #include <linux/clk.h>
 #include <linux/delay.h>
 #include <linux/dma-mapping.h>
@@ -81,7 +81,15 @@ static void icp_raise_irq(void *priv)
 {
 	struct camss_icp *icp = priv;
 
+	dev_info(icp->dev, "Raising HOST2ICPINT (CIRQ STATUS before: 0x%x)\n",
+		 readl(icp->cirq_base + CIRQ_OB_STATUS));
+
 	writel(1, icp->cirq_base + CIRQ_HOST2ICPINT);
+
+	/* Small delay then check if anything changed */
+	udelay(100);
+	dev_info(icp->dev, "CIRQ STATUS after HOST2ICPINT: 0x%x\n",
+		 readl(icp->cirq_base + CIRQ_OB_STATUS));
 }
 
 /* Load firmware */
@@ -280,6 +288,11 @@ static int icp_boot(struct camss_icp *icp)
 	writel(0x7f, icp->cirq_base + CIRQ_OB_CLEAR);
 	writel(CIRQ_ICP2HOSTINT | CIRQ_WDT_BITE_WS0, icp->cirq_base + CIRQ_OB_MASK);
 
+	/* Dump CIRQ state for debugging */
+	dev_info(icp->dev, "CIRQ config: MASK=0x%x STATUS=0x%x\n",
+		 readl(icp->cirq_base + CIRQ_OB_MASK),
+		 readl(icp->cirq_base + CIRQ_OB_STATUS));
+
 	/* Load firmware */
 	ret = icp_load_firmware(icp);
 	if (ret)
@@ -306,7 +319,18 @@ static int icp_boot(struct camss_icp *icp)
 
 	/* Signal init request */
 	dev_dbg(icp->dev, "Signaling host init request\n");
-	writel(1, icp->csr_base + HFI_REG_ICP_HOST_MSG);
+
+	dev_info(icp->dev, "GP registers right before FW init:\n");
+	dev_info(icp->dev, "  GP0 (FW_VERSION):    0x%08x\n", readl(icp->csr_base + HFI_REG_FW_VERSION));
+	dev_info(icp->dev, "  GP1 (HOST_ICP_MSG):  0x%08x\n", readl(icp->csr_base + HFI_REG_HOST_ICP_MSG));
+	dev_info(icp->dev, "  GP2 (ICP_HOST_MSG):  0x%08x\n", readl(icp->csr_base + HFI_REG_ICP_HOST_MSG));
+
+	writel(1, icp->csr_base + HFI_REG_HOST_ICP_MSG);
+
+	dev_info(icp->dev, "GP registers right after FW init:\n");
+	dev_info(icp->dev, "  GP0 (FW_VERSION):    0x%08x\n", readl(icp->csr_base + HFI_REG_FW_VERSION));
+	dev_info(icp->dev, "  GP1 (HOST_ICP_MSG):  0x%08x\n", readl(icp->csr_base + HFI_REG_HOST_ICP_MSG));
+	dev_info(icp->dev, "  GP2 (ICP_HOST_MSG):  0x%08x\n", readl(icp->csr_base + HFI_REG_ICP_HOST_MSG));
 
 	ret = readl_poll_timeout(icp->csr_base + HFI_REG_ICP_HOST_MSG,
 				data, data & 1,
@@ -321,6 +345,38 @@ static int icp_boot(struct camss_icp *icp)
 	}
 
 	dev_info(icp->dev, "Firmware initialized successfully!\n");
+
+	/* Dump CIRQ state after FW init */
+	dev_info(icp->dev, "CIRQ after FW init: MASK=0x%x STATUS=0x%x\n",
+		 readl(icp->cirq_base + CIRQ_OB_MASK),
+		 readl(icp->cirq_base + CIRQ_OB_STATUS));
+
+	/* Dump GP registers to verify what firmware sees */
+	dev_info(icp->dev, "GP registers after FW init:\n");
+	dev_info(icp->dev, "  GP0 (FW_VERSION):    0x%08x\n", readl(icp->csr_base + HFI_REG_FW_VERSION));
+	dev_info(icp->dev, "  GP1 (HOST_ICP_MSG):  0x%08x\n", readl(icp->csr_base + HFI_REG_HOST_ICP_MSG));
+	dev_info(icp->dev, "  GP2 (ICP_HOST_MSG):  0x%08x\n", readl(icp->csr_base + HFI_REG_ICP_HOST_MSG));
+	dev_info(icp->dev, "  GP3:                 0x%08x\n", readl(icp->csr_base + 0x2c));
+	dev_info(icp->dev, "  GP4 (SHMEM_PTR):     0x%08x (we wrote: 0x%08x)\n",
+		 readl(icp->csr_base + 0x30), (u32)icp->hfi.hfi_mem.shmem.dma_addr);
+	dev_info(icp->dev, "  GP5 (SHMEM_SIZE):    0x%08x (we wrote: 0x%08x)\n",
+		 readl(icp->csr_base + 0x34), (u32)icp->hfi.hfi_mem.shmem.size);
+	dev_info(icp->dev, "  GP6 (QTBL_PTR):      0x%08x (we wrote: 0x%08x)\n",
+		 readl(icp->csr_base + 0x38), (u32)icp->hfi.hfi_mem.q_tbl.dma_addr);
+	dev_info(icp->dev, "  GP7 (SECHEAP_PTR):   0x%08x (we wrote: 0x%08x)\n",
+		 readl(icp->csr_base + 0x3c), (u32)icp->hfi.hfi_mem.secheap.dma_addr);
+	dev_info(icp->dev, "  GP8 (SECHEAP_SIZE):  0x%08x (we wrote: 0x%08x)\n",
+		 readl(icp->csr_base + 0x40), HFI_SECHEAP_SIZE);
+	dev_info(icp->dev, "  GP9 (STATUS):        0x%08x\n", readl(icp->csr_base + 0x44));
+	dev_info(icp->dev, "  GP10 (SFR_PTR):      0x%08x (we wrote: 0x%08x)\n",
+		 readl(icp->csr_base + 0x48), (u32)icp->hfi.hfi_mem.sfr.dma_addr);
+	dev_info(icp->dev, "  GP11 (QDSS_IOVA):    0x%08x (we wrote: 0x%08x)\n",
+		 readl(icp->csr_base + 0x4c), (u32)icp->hfi.hfi_mem.qdss.dma_addr);
+	dev_info(icp->dev, "  GP12 (QDSS_SIZE):    0x%08x\n", readl(icp->csr_base + 0x50));
+	dev_info(icp->dev, "  GP17 (FWUNCACHED):   0x%08x (we wrote: 0x%08x)\n",
+		 readl(icp->csr_base + 0x64), (u32)icp->hfi.hfi_mem.fwuncached.dma_addr);
+	dev_info(icp->dev, "  GP18 (FWUNC_SIZE):   0x%08x (we wrote: 0x%08x)\n",
+		 readl(icp->csr_base + 0x68), HFI_FWUNCACHED_SIZE);
 
 	return 0;
 err_hfi:
