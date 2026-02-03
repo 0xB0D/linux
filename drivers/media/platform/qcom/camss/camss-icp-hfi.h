@@ -106,10 +106,19 @@ enum {
 #define HFI_SFR_SIZE				SZ_8K
 #define HFI_SECHEAP_SIZE			SZ_1M
 
-/* General Purpose registers - offset 0x20 from CSR base */
-#define HFI_REG_FW_VERSION			0x20  /* GP0 - firmware writes version here */
-#define HFI_REG_HOST_ICP_MSG			0x24  /* GP1 - host to ICP message */
-#define HFI_REG_ICP_HOST_MSG			0x28  /* GP2 - ICP to host init response */
+/*
+ * General Purpose registers
+ *
+ * GP registers start at CSR base + 0x20. CAMX defines them as:
+ *   GEN_PURPOSE_REG(n) = n * 4, relative to (CSR + 0x20)
+ *
+ * So GP0 = CSR+0x20, GP1 = CSR+0x24, GP2 = CSR+0x28, GP3 = CSR+0x2C, etc.
+ *
+ * Offsets below are absolute from CSR base for direct use with csr_base.
+ */
+#define HFI_REG_FW_VERSION			0x24  /* GP1 - firmware writes version */
+#define HFI_REG_HOST_ICP_INIT_REQ		0x28  /* GP2 - host signals init request */
+#define HFI_REG_ICP_HOST_INIT_RESP		0x2C  /* GP3 - firmware signals ready */
 #define HFI_REG_SHARED_MEM_PTR			0x30  /* GP4 - shared memory IOVA */
 #define HFI_REG_SHARED_MEM_SIZE			0x34  /* GP5 - shared memory size */
 #define HFI_REG_QTBL_PTR			0x38  /* GP6 - q table IOVA */
@@ -128,6 +137,10 @@ enum {
 
 /* HFI constants */
 #define HFI_QUEUE_TABLE_VERSION			0xFFFFFFFF
+
+/* Init handshake values (from CAMX hfi_reg.h) */
+#define ICP_INIT_REQUEST_SET			1
+#define ICP_INIT_RESP_SUCCESS			1
 
 struct hfi_resources {
 	u32 shmem_size;
@@ -187,7 +200,7 @@ struct icp_hfi {
 	 * State
 	 */
 	bool ready;         /* HFI fully initialized */
-	u32 fw_version;     /* From GP0 register after boot */
+	u32 fw_version;     /* From GP1 register after boot */
 	u32 api_version;    /* From INIT_DONE response */
 
 	/* Debug */

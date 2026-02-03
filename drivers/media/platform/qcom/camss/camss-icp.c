@@ -4,7 +4,7 @@
  * 
  * Simplified version: uses DMA addresses directly without remapping
  */
-#define DEBUG
+
 #include <linux/clk.h>
 #include <linux/delay.h>
 #include <linux/dma-mapping.h>
@@ -47,6 +47,10 @@
 
 #define POLLING_SLEEP_US		1000
 #define POLLING_TIMEOUT_US		20000
+
+/* HFI polling - match CAMX: 100us interval, 2 second timeout */
+#define HFI_POLL_DELAY_US		100
+#define HFI_POLL_TIMEOUT_US		2000000
 
 struct camss_icp_resources {
 	int pas_id;
@@ -317,34 +321,54 @@ static int icp_boot(struct camss_icp *icp)
 	/* Program HFI pointers after bootup */
 	icp_hfi_latch_regs(icp);
 
-	/* Signal init request */
-	dev_dbg(icp->dev, "Signaling host init request\n");
+	/*
+	 * Boot handshake with ICP firmware.
+	 *
+	 * After TZ starts the ICP, firmware waits for host to program
+	 * GP registers with memory addresses and signal readiness.
+	 *
+	 * CAMX hfi_reg.h register assignments:
+	 *   GP1 (0x24) = FW_VERSION        - firmware writes its version
+	 *   GP2 (0x28) = HOST_ICP_INIT_REQ - host writes 1 ("addresses ready")
+	 *   GP3 (0x2C) = ICP_HOST_INIT_RESP - firmware writes 1 ("ready")
+	 *   GP4-GP18   = memory addresses   - host programs with IOVAs
+	 *
+	 * Sequence (from CAMX cam_hfi_init):
+	 *   1. Program GP4-GP18 with memory addresses  [done above]
+	 *   2. Write GP2 = 1 (HOST_ICP_INIT_REQUEST)
+	 *   3. Poll GP3 until ICP_INIT_RESP_SUCCESS (1)
+	 *   4. Read GP1 for firmware version
+	 *
+	 * Previous bug: We wrote 1 to GP2 then polled GP2, which succeeded
+	 * instantly since we read back our own write. Firmware never ran.
+	 */
 
-	dev_info(icp->dev, "GP registers right before FW init:\n");
-	dev_info(icp->dev, "  GP0 (FW_VERSION):    0x%08x\n", readl(icp->csr_base + HFI_REG_FW_VERSION));
-	dev_info(icp->dev, "  GP1 (HOST_ICP_MSG):  0x%08x\n", readl(icp->csr_base + HFI_REG_HOST_ICP_MSG));
-	dev_info(icp->dev, "  GP2 (ICP_HOST_MSG):  0x%08x\n", readl(icp->csr_base + HFI_REG_ICP_HOST_MSG));
+	/* Signal firmware that addresses are ready */
+	dev_dbg(icp->dev, "Signaling host init request (GP2=1)\n");
+	writel(ICP_INIT_REQUEST_SET, icp->csr_base + HFI_REG_HOST_ICP_INIT_REQ);
 
-	writel(1, icp->csr_base + HFI_REG_HOST_ICP_MSG);
+	/* Wait for firmware to signal ready via GP3 */
+	dev_dbg(icp->dev, "Waiting for firmware ready (polling GP3)...\n");
 
-	dev_info(icp->dev, "GP registers right after FW init:\n");
-	dev_info(icp->dev, "  GP0 (FW_VERSION):    0x%08x\n", readl(icp->csr_base + HFI_REG_FW_VERSION));
-	dev_info(icp->dev, "  GP1 (HOST_ICP_MSG):  0x%08x\n", readl(icp->csr_base + HFI_REG_HOST_ICP_MSG));
-	dev_info(icp->dev, "  GP2 (ICP_HOST_MSG):  0x%08x\n", readl(icp->csr_base + HFI_REG_ICP_HOST_MSG));
-
-	ret = readl_poll_timeout(icp->csr_base + HFI_REG_ICP_HOST_MSG,
-				data, data & 1,
-				POLLING_SLEEP_US, POLLING_TIMEOUT_US);
+	ret = readl_poll_timeout(icp->csr_base + HFI_REG_ICP_HOST_INIT_RESP,
+				 data, data == ICP_INIT_RESP_SUCCESS,
+				 HFI_POLL_DELAY_US, HFI_POLL_TIMEOUT_US);
 
 	if (ret < 0) {
-		dev_err(icp->dev, "Firmware init timeout\n");
-		icp_dump_gp_regs(icp, "TIMEOUT");
+		dev_err(icp->dev, "Firmware ready timeout (GP3=0x%08x)\n",
+			readl(icp->csr_base + HFI_REG_ICP_HOST_INIT_RESP));
+		dev_err(icp->dev, "  GP1 (FW_VERSION)=0x%08x GP2 (INIT_REQ)=0x%08x\n",
+			readl(icp->csr_base + HFI_REG_FW_VERSION),
+			readl(icp->csr_base + HFI_REG_HOST_ICP_INIT_REQ));
+		icp_dump_gp_regs(icp, "FW READY TIMEOUT");
 		icp_hfi_dump_sfr(&icp->hfi);
 		ret = -ETIMEDOUT;
 		goto err_hfi;
 	}
 
-	dev_info(icp->dev, "Firmware initialized successfully!\n");
+	/* Read firmware version from GP1 */
+	icp->hfi.fw_version = readl(icp->csr_base + HFI_REG_FW_VERSION);
+	dev_info(icp->dev, "Firmware ready! version=0x%08x\n", icp->hfi.fw_version);
 
 	/* Dump CIRQ state after FW init */
 	dev_info(icp->dev, "CIRQ after FW init: MASK=0x%x STATUS=0x%x\n",
@@ -353,10 +377,10 @@ static int icp_boot(struct camss_icp *icp)
 
 	/* Dump GP registers to verify what firmware sees */
 	dev_info(icp->dev, "GP registers after FW init:\n");
-	dev_info(icp->dev, "  GP0 (FW_VERSION):    0x%08x\n", readl(icp->csr_base + HFI_REG_FW_VERSION));
-	dev_info(icp->dev, "  GP1 (HOST_ICP_MSG):  0x%08x\n", readl(icp->csr_base + HFI_REG_HOST_ICP_MSG));
-	dev_info(icp->dev, "  GP2 (ICP_HOST_MSG):  0x%08x\n", readl(icp->csr_base + HFI_REG_ICP_HOST_MSG));
-	dev_info(icp->dev, "  GP3:                 0x%08x\n", readl(icp->csr_base + 0x2c));
+	dev_info(icp->dev, "  GP0 (unused):        0x%08x\n", readl(icp->csr_base + 0x20));
+	dev_info(icp->dev, "  GP1 (FW_VERSION):    0x%08x\n", readl(icp->csr_base + 0x24));
+	dev_info(icp->dev, "  GP2 (INIT_REQ):      0x%08x\n", readl(icp->csr_base + 0x28));
+	dev_info(icp->dev, "  GP3 (INIT_RESP):     0x%08x\n", readl(icp->csr_base + 0x2c));
 	dev_info(icp->dev, "  GP4 (SHMEM_PTR):     0x%08x (we wrote: 0x%08x)\n",
 		 readl(icp->csr_base + 0x30), (u32)icp->hfi.hfi_mem.shmem.dma_addr);
 	dev_info(icp->dev, "  GP5 (SHMEM_SIZE):    0x%08x (we wrote: 0x%08x)\n",
