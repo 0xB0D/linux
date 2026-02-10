@@ -230,7 +230,11 @@ void icp_hfi_latch_regs(struct camss_icp *icp)
 
 	/* Shared memory */
 	writel(hfi->hfi_mem.shmem.dma_addr, icp->csr_base + HFI_REG_SHARED_MEM_PTR);
-	writel(hfi->hfi_mem.shmem.size, icp->csr_base + HFI_REG_SHARED_MEM_SIZE);
+	//writel(hfi->hfi_mem.shmem.size, icp->csr_base + HFI_REG_SHARED_MEM_SIZE);
+	writel(0xfc000000, icp->csr_base + HFI_REG_SHARED_MEM_SIZE);
+
+	/* QTBL - header describing HFI queues */
+	writel(hfi->hfi_mem.q_tbl.dma_addr, icp->csr_base + HFI_REG_QTBL_PTR);
 
 	/* QDSS */
 	writel(hfi->hfi_mem.qdss.dma_addr, icp->csr_base + HFI_REG_QDSS_IOVA);
@@ -243,9 +247,6 @@ void icp_hfi_latch_regs(struct camss_icp *icp)
 	/* Sec heap */
 	writel(hfi->hfi_mem.secheap.dma_addr, icp->csr_base + HFI_REG_SECONDARY_HEAP_PTR);
 	writel(HFI_SECHEAP_SIZE, icp->csr_base + HFI_REG_SECONDARY_HEAP_SIZE);
-
-	/* QTBL - header describing HFI queues */
-	writel(hfi->hfi_mem.q_tbl.dma_addr, icp->csr_base + HFI_REG_QTBL_PTR);
 
 	/* SFR buffer */
 	writel(hfi->hfi_mem.sfr.dma_addr, icp->csr_base + HFI_REG_SFR_PTR);
@@ -267,6 +268,13 @@ static int icp_boot(struct camss_icp *icp)
 	const struct camss_icp_resources *icp_res = icp->icp_res;
 	u32 hw_version, data;
 	int ret;
+
+	/* Power on all domains via runtime PM */
+	ret = pm_runtime_resume_and_get(icp->dev);
+	if (ret) {
+		dev_err(icp->dev, "Failed to power on: %d\n", ret);
+		return ret;
+	}
 
 	/* Enable clocks */
 	ret = clk_bulk_prepare_enable(icp_res->clk_num, icp->clks);
@@ -378,29 +386,29 @@ static int icp_boot(struct camss_icp *icp)
 	/* Dump GP registers to verify what firmware sees */
 	dev_info(icp->dev, "GP registers after FW init:\n");
 	dev_info(icp->dev, "  GP0 (unused):        0x%08x\n", readl(icp->csr_base + 0x20));
-	dev_info(icp->dev, "  GP1 (FW_VERSION):    0x%08x\n", readl(icp->csr_base + 0x24));
-	dev_info(icp->dev, "  GP2 (INIT_REQ):      0x%08x\n", readl(icp->csr_base + 0x28));
-	dev_info(icp->dev, "  GP3 (INIT_RESP):     0x%08x\n", readl(icp->csr_base + 0x2c));
+	dev_info(icp->dev, "  GP1 (FW_VERSION):    0x%08x\n", readl(icp->csr_base + HFI_REG_FW_VERSION));
+	dev_info(icp->dev, "  GP2 (INIT_REQ):      0x%08x\n", readl(icp->csr_base + HFI_REG_HOST_ICP_INIT_REQ));
+	dev_info(icp->dev, "  GP3 (INIT_RESP):     0x%08x\n", readl(icp->csr_base + HFI_REG_ICP_HOST_INIT_RESP));
 	dev_info(icp->dev, "  GP4 (SHMEM_PTR):     0x%08x (we wrote: 0x%08x)\n",
-		 readl(icp->csr_base + 0x30), (u32)icp->hfi.hfi_mem.shmem.dma_addr);
+		 readl(icp->csr_base + HFI_REG_SHARED_MEM_PTR), (u32)icp->hfi.hfi_mem.shmem.dma_addr);
 	dev_info(icp->dev, "  GP5 (SHMEM_SIZE):    0x%08x (we wrote: 0x%08x)\n",
-		 readl(icp->csr_base + 0x34), (u32)icp->hfi.hfi_mem.shmem.size);
+		 readl(icp->csr_base + HFI_REG_SHARED_MEM_SIZE), (u32)icp->hfi.hfi_mem.shmem.size);
 	dev_info(icp->dev, "  GP6 (QTBL_PTR):      0x%08x (we wrote: 0x%08x)\n",
-		 readl(icp->csr_base + 0x38), (u32)icp->hfi.hfi_mem.q_tbl.dma_addr);
+		 readl(icp->csr_base + HFI_REG_QTBL_PTR), (u32)icp->hfi.hfi_mem.q_tbl.dma_addr);
 	dev_info(icp->dev, "  GP7 (SECHEAP_PTR):   0x%08x (we wrote: 0x%08x)\n",
-		 readl(icp->csr_base + 0x3c), (u32)icp->hfi.hfi_mem.secheap.dma_addr);
+		 readl(icp->csr_base + HFI_REG_SECONDARY_HEAP_PTR), (u32)icp->hfi.hfi_mem.secheap.dma_addr);
 	dev_info(icp->dev, "  GP8 (SECHEAP_SIZE):  0x%08x (we wrote: 0x%08x)\n",
-		 readl(icp->csr_base + 0x40), HFI_SECHEAP_SIZE);
-	dev_info(icp->dev, "  GP9 (STATUS):        0x%08x\n", readl(icp->csr_base + 0x44));
+		 readl(icp->csr_base + HFI_REG_SECONDARY_HEAP_SIZE), HFI_SECHEAP_SIZE);
+	dev_info(icp->dev, "  GP9 (STATUS):        0x%08x\n", readl(icp->csr_base + HFI_REG_RESERVED));
 	dev_info(icp->dev, "  GP10 (SFR_PTR):      0x%08x (we wrote: 0x%08x)\n",
-		 readl(icp->csr_base + 0x48), (u32)icp->hfi.hfi_mem.sfr.dma_addr);
+		 readl(icp->csr_base + HFI_REG_SFR_PTR), (u32)icp->hfi.hfi_mem.sfr.dma_addr);
 	dev_info(icp->dev, "  GP11 (QDSS_IOVA):    0x%08x (we wrote: 0x%08x)\n",
-		 readl(icp->csr_base + 0x4c), (u32)icp->hfi.hfi_mem.qdss.dma_addr);
-	dev_info(icp->dev, "  GP12 (QDSS_SIZE):    0x%08x\n", readl(icp->csr_base + 0x50));
+		 readl(icp->csr_base + HFI_REG_QDSS_IOVA), (u32)icp->hfi.hfi_mem.qdss.dma_addr);
+	dev_info(icp->dev, "  GP12 (QDSS_SIZE):    0x%08x\n", readl(icp->csr_base + HFI_REG_QDSS_IOVA_SIZE));
 	dev_info(icp->dev, "  GP17 (FWUNCACHED):   0x%08x (we wrote: 0x%08x)\n",
-		 readl(icp->csr_base + 0x64), (u32)icp->hfi.hfi_mem.fwuncached.dma_addr);
+		 readl(icp->csr_base + HFI_REG_FWUNCACHED_IOVA), (u32)icp->hfi.hfi_mem.fwuncached.dma_addr);
 	dev_info(icp->dev, "  GP18 (FWUNC_SIZE):   0x%08x (we wrote: 0x%08x)\n",
-		 readl(icp->csr_base + 0x68), HFI_FWUNCACHED_SIZE);
+		 readl(icp->csr_base + HFI_REG_FWUNCACHED_SIZE), HFI_FWUNCACHED_SIZE);
 
 	return 0;
 err_hfi:
@@ -492,6 +500,8 @@ dev_info(&pdev->dev, "0xB0D requesting irq %d\n", icp->irq);
 		dev_err(&pdev->dev, "Failed to request IRQ: %d\n", ret);
 		goto err_pd;
 	}
+
+	pm_runtime_enable(&pdev->dev);
 
 	ret = icp_boot(icp);
 	if (ret)

@@ -5689,9 +5689,9 @@
 			icp: icp@ac01000 {
 				compatible = "qcom,x1e80100-camss-icp";
 
-				reg = <0 0xac01000 0 0x500>,
+				reg = <0 0xac01000 0 0x400>,
 				      <0 0xac01800 0 0x400>,
-				      <0 0xac04000 0 0x100>;
+				      <0 0xac04000 0 0x1000>;
 				reg-names = "csr", "cirq", "wd";
 
 				interrupts = <GIC_SPI 463 IRQ_TYPE_EDGE_RISING>;
