@@ -5714,11 +5714,23 @@
 					 <&camcc CAM_CC_IPE_PPS_FAST_AHB_CLK>,
 					 <&camcc CAM_CC_IPE_NPS_CLK>,
 					 <&camcc CAM_CC_IPE_PPS_CLK>,
-					 <&camcc CAM_CC_CPAS_IPE_NPS_CLK>;
+					 <&camcc CAM_CC_CPAS_IPE_NPS_CLK>,
+
+					 <&gcc GCC_CAMERA_HF_AXI_CLK>,
+					 <&gcc GCC_CAMERA_SF_AXI_CLK>,
+					 <&camcc CAM_CC_CPAS_AHB_CLK>,
+					 <&camcc CAM_CC_CORE_AHB_CLK>,
+					 <&camcc CAM_CC_CPAS_FAST_AHB_CLK>,
+					 <&camcc CAM_CC_CAMNOC_AXI_RT_CLK>,
+					 <&camcc CAM_CC_CAMNOC_AXI_NRT_CLK>;
+
 				clock-names = "ahb", "core", "debug_xo",
 					      "bps_ahb", "bps_fast_ahb", "bps", "cpas_bps",
 					      "ipe_ahb", "ipe_nps_fast_ahb", "ipe_pps_fast_ahb",
-					      "ipe_nps", "ipe_pps", "cpas_ipe";
+					      "ipe_nps", "ipe_pps", "cpas_ipe",
+					      "gcc_hf_axi", "gcc_sf_axi",
+					      "cpas_ahb", "core_ahb", "cpas_fast_ahb",
+					      "camnoc_axi_rt", "camnoc_axi_nrt";
 
 				/*
 				 * Power domains: TITAN_TOP plus BPS and IPE GDSCs.
