@@ -10,20 +10,59 @@
 
 #include <linux/types.h>
 
-#define HFI_QTBL_VERSION		0xFFFFFFFF
+#define HFI_QTBL_VERSION			0xFFFFFFFF
+
+/* ICP firmware boot command/response */
+#define ICP_INIT_REQUEST_RESET			0x0
+#define ICP_INIT_REQUEST_SET			0x01
+
+#define ICP_INIT_RESP_RESET			0x00
+#define ICP_INIT_RESP_SUCCESS			0x01
+#define	ICP_INIT_RESP_FAILED			0x02
+
+/* Command / Response groups */
+#define HFI_CMD_GRP_ICP				0
+#define HFI_CMD_GRP_IPE_BPS			BIT(24)
+#define HFI_CMD_GRP_CDM				BIT(25)
+#define HFI_CMD_GRP_DBG				(BIT(24) | BIT(25))
+
+/* Command / Response offsets */
+#define HFI_CMD_BASE				BIT(16)
+#define HFI_RSP_BASE				BIT(17)
 
 /* System Commands */
 #define HFI_CMD_SYS_INIT			0x10001
 #define HFI_CMD_SYS_PC_PREP			0x10002
 #define HFI_CMD_SYS_SET_PROPERTY		0x10003
+#define HFI_CMD_SYS_GET_PROPERTY		0x10004
 #define HFI_CMD_SYS_PING			0x10005
+#define HFI_CMD_SYS_RESET			0x10006
+
+/* ICP Firmware result codes */
+#define CAMERAICP_OK				0x00
+#define CAMERAICP_EFAILED			0x01
+#define CAMERAICP_ENOMEMORY			0x02
+#define CAMERAICP_EBADSTATE			0x03
+#define CAMERAICP_EBADPARM			0x04
+#define CAMERAICP_EBADITEM			0x05
+#define CAMERAICP_EINVALIDFORMAT		0x06
+#define CAMERAICP_EUNSUPPORTED			0x07
+#define CAMERAICP_EOUTOFBOUND			0x08
+#define CAMERAICP_ETIMEDOUT			0x09
+#define CAMERAICP_EABORTED			0x0a
+#define CAMERAICP_EHWVIOLATION			0x0b
+#define CAMERAICP_ECDMERROR			0x0c
 
 /* System Messages */
-#define HFI_MSG_SYS_INIT_DONE			0x10001
-#define HFI_MSG_SYS_PC_PREP_DONE		0x10002
-#define HFI_MSG_SYS_PING_ACK			0x10003
-#define HFI_MSG_SYS_DEBUG			0x10004
-#define HFI_MSG_EVENT_NOTIFY			0x10005
+#define HFI_MSG_ICP_COMMON_START		0x20000
+#define HFI_MSG_SYS_INIT_DONE			0x20001
+#define HFI_MSG_SYS_PC_PREP_DONE		0x20002
+#define HFI_MSG_SYS_DEBUG			0x20003
+#define HFI_MSG_SYS_IDLE			0x20004
+#define HFI_MSG_SYS_PROPERTY_INFO		0x20005
+#define HFI_MSG_SYS_PING_ACK			0x20006
+#define HFI_MSG_SYS_RESET_ACK			0x20007
+#define HFI_MSG_EVENT_NOTIFY			0x20008
 
 /* IPE/BPS Commands */
 #define HFI_CMD_IPEBPS_CREATE_HANDLE		0x20001
@@ -47,6 +86,10 @@
 
 /* Events */
 #define HFI_EVENT_SYS_ERROR			0x01
+#define HFI_EVENT_ICP_ERROR			0x02
+#define HFI_EVENT_IPE_BPS_ERROR			0x03
+#define HFI_EVENT_CDM_ERROR			0x04
+#define HFI_EVENT_DBG_ERROR			0x05
 
 /* Property Types */
 #define HFI_PROP_SYS_DEBUG_CFG			0x01
@@ -137,10 +180,6 @@ enum {
 
 /* HFI constants */
 #define HFI_QUEUE_TABLE_VERSION			0xFFFFFFFF
-
-/* Init handshake values (from CAMX hfi_reg.h) */
-#define ICP_INIT_REQUEST_SET			1
-#define ICP_INIT_RESP_SUCCESS			1
 
 struct hfi_resources {
 	u32 shmem_size;

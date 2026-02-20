@@ -43,8 +43,7 @@
 #define CIRQ_ICP2HOSTINT		BIT(0)
 #define CIRQ_WDT_BITE_WS0		BIT(6)
 
-//#define ICP_CLK_MAX			4
-#define ICP_CLK_MAX			20
+#define ICP_CLK_MAX			32	
 
 #define POLLING_SLEEP_US		1000
 #define POLLING_TIMEOUT_US		20000
@@ -55,7 +54,7 @@
 
 struct camss_icp_resources {
 	int pas_id;
-	const char * const clk_names[ICP_CLK_MAX];
+	const char ** const clk_names;
 	int clk_num;
 	struct hfi_resources hfi_res;
 };
@@ -553,16 +552,20 @@ static void camss_icp_remove(struct platform_device *pdev)
 
 }
 
+static const char * const x1e80100_clk_names [] = {
+	"ahb", "core", "debug_xo",
+	"gcc_hf_axi", "gcc_sf_axi",
+	"cpas_ahb", "core_ahb", "cpas_fast_ahb",
+	"camnoc_axi_rt", "camnoc_axi_nrt",
+	"bps_ahb", "bps_fast_ahb", "bps", "cpas_bps",
+	"ipe_ahb", "ipe_nps_fast_ahb", "ipe_pps_fast_ahb",
+	"ipe_nps", "ipe_pps", "cpas_ipe",
+};
+
 struct camss_icp_resources x1e80100_icp_res = {
 	.pas_id = 33,
-	.clk_names = { "ahb", "core", "debug_xo",
-		       "bps_ahb", "bps_fast_ahb", "bps", "cpas_bps",
-		       "ipe_ahb", "ipe_nps_fast_ahb", "ipe_pps_fast_ahb",
-		       "ipe_nps", "ipe_pps", "cpas_ipe",
-		       "gcc_hf_axi", "gcc_sf_axi",
-		       "cpas_ahb", "core_ahb", "cpas_fast_ahb",
-		       "camnoc_axi_rt", "camnoc_axi_nrt" },
-	.clk_num = ICP_CLK_MAX,
+	.clk_names = x1e80100_clk_names,
+	.clk_num = ARRAY_SIZE(x1e80100_clk_names),
 	.hfi_res = {
 		.shmem_size = SZ_1M,	 // change to 0x0FC00000 per downstream 
 		.qdss_size = SZ_1M,
