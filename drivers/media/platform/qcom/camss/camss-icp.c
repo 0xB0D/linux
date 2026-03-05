@@ -52,10 +52,14 @@
 #define HFI_POLL_DELAY_US		100
 #define HFI_POLL_TIMEOUT_US		2000000
 
+/* ICC paths */
+#define HFI_MAX_ICC_PATHS		4
 struct camss_icp_resources {
 	int pas_id;
 	const char ** const clk_names;
 	int clk_num;
+	const char ** const noc_names;
+	int noc_num;
 	struct hfi_resources hfi_res;
 };
 
@@ -68,7 +72,7 @@ struct camss_icp {
 	struct dev_pm_domain_list *pd_list;
 
 	struct clk_bulk_data clks[ICP_CLK_MAX];
-	struct icc_path *icc_path;
+	struct icc_path *icc_path[HFI_MAX_ICC_PATHS];
 
 	struct icp_hfi hfi;
 
@@ -270,7 +274,7 @@ static int icp_boot(struct camss_icp *icp)
 {
 	const struct camss_icp_resources *icp_res = icp->icp_res;
 	u32 hw_version, data;
-	int ret;
+	int i, ret;
 
 	/* Power on all domains via runtime PM */
 	ret = pm_runtime_resume_and_get(icp->dev);
@@ -286,8 +290,16 @@ static int icp_boot(struct camss_icp *icp)
 		return ret;
 	}
 
-	if (icp->icc_path)
-		icc_set_bw(icp->icc_path, 100000000, 1000000000);
+	for (i = 0; i < icp_res->noc_num; i++) {
+		if (icp->icc_path[i]) {
+			dev_dbg(icp->dev, "Voting for BW now %s\n", icp_res->noc_names[i]);
+			ret = icc_set_bw(icp->icc_path[i], 100000000, 1000000000);
+			if (ret) {
+				dev_err(icp->dev, "Voting for %s failed\n", icp_res->noc_names[i]);
+				return ret;
+			}
+		}
+	}
 
 	/* Verify HW version */
 	hw_version = readl(icp->csr_base + ICP_CSR_HW_VERSION);
@@ -424,8 +436,10 @@ static int icp_boot(struct camss_icp *icp)
 err_hfi:
 	icp_hfi_deinit_queues(&icp->hfi);
 err_clk:
-	if (icp->icc_path)
-		icc_set_bw(icp->icc_path, 0, 0);
+	for (i = 0; i < icp_res->noc_num; i++) {
+		if (icp->icc_path[i])
+			icc_set_bw(icp->icc_path[i], 0, 0);
+	}
 	clk_bulk_disable_unprepare(icp_res->clk_num, icp->clks);
 	return ret;
 }
@@ -495,14 +509,16 @@ static int camss_icp_probe(struct platform_device *pdev)
 		goto err_pd;
 	}
 
-	icp->icc_path = devm_of_icc_get(&pdev->dev, "mem");
-	if (IS_ERR(icp->icc_path)) {
-		if (PTR_ERR(icp->icc_path) != -ENODATA) {
-			ret = PTR_ERR(icp->icc_path);
-			goto err_pd;
+	for (i = 0; i < icp_res->noc_num; i++) {
+		icp->icc_path[i] = devm_of_icc_get(&pdev->dev, icp_res->noc_names[i]);
+		if (IS_ERR(icp->icc_path[i])) {
+			if (PTR_ERR(icp->icc_path[i]) != -ENODATA) {
+				ret = PTR_ERR(icp->icc_path[i]);
+				goto err_pd;
+			}
+			icp->icc_path[i] = NULL;
 		}
-		icp->icc_path = NULL;
-	}
+	};
 
 	ret = devm_request_threaded_irq(&pdev->dev, icp->irq, camss_icp_isr,
 					camss_icp_isr_thread,
@@ -536,15 +552,17 @@ static void camss_icp_remove(struct platform_device *pdev)
 {
 	struct camss_icp *icp = platform_get_drvdata(pdev);
 	const struct camss_icp_resources *icp_res;
+	int i;
 
 	icp_res = icp->icp_res;
 	qcom_scm_pas_shutdown(icp_res->pas_id);
 
 	icp_hfi_deinit_queues(&icp->hfi);
 
-	if (icp->icc_path)
-		icc_set_bw(icp->icc_path, 0, 0);
-
+	for (i = 0; i < icp_res->noc_num; i++) {
+		if (icp->icc_path[i])
+			icc_set_bw(icp->icc_path[i], 0, 0);
+	}
 	clk_bulk_disable_unprepare(icp_res->clk_num, icp->clks);
  
 	if (icp->pd_list)
@@ -560,12 +578,22 @@ static const char * const x1e80100_clk_names [] = {
 	"bps_ahb", "bps_fast_ahb", "bps", "cpas_bps",
 	"ipe_ahb", "ipe_nps_fast_ahb", "ipe_pps_fast_ahb",
 	"ipe_nps", "ipe_pps", "cpas_ipe",
+	"slow_ahb_clk_src", "ife0", "ife0_fast_ahb", "ife1", "ife1_fast_ahb", "sfe0_fast_ahb"
+};
+
+static const char * const x1e80100_noc_names [] = {
+	"ahb",
+	"hf_0",
+	"sf_0",
+	"sf_icp"
 };
 
 struct camss_icp_resources x1e80100_icp_res = {
 	.pas_id = 33,
 	.clk_names = x1e80100_clk_names,
 	.clk_num = ARRAY_SIZE(x1e80100_clk_names),
+	.noc_names = x1e80100_noc_names,
+	.noc_num = ARRAY_SIZE(x1e80100_noc_names),
 	.hfi_res = {
 		.shmem_size = SZ_1M,	 // change to 0x0FC00000 per downstream 
 		.qdss_size = SZ_1M,

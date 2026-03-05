@@ -181,6 +181,8 @@ enum {
 /* HFI constants */
 #define HFI_QUEUE_TABLE_VERSION			0xFFFFFFFF
 
+#define HFI_BYTE_WORD_SHIFT			0x02
+
 struct hfi_resources {
 	u32 shmem_size;
 	u32 qdss_size;
@@ -295,35 +297,30 @@ struct hfi_q_tbl_hdr {
 
 struct hfi_pkt_hdr {
 	u32 size;
-	u32 pkt_type;
+	u32 type;
 } __packed;
 
 struct hfi_cmd_sys_init {
-	u32 size;
-	u32 pkt_type;
+	struct hfi_pkt_hdr hdr;
 } __packed;
 
 struct hfi_msg_init_done {
-	u32 size;
-	u32 pkt_type;
+	struct hfi_pkt_hdr hdr;
 	u32 error;
 } __packed;
 
 struct hfi_cmd_ping {
-	u32 size;
-	u32 pkt_type;
+	struct hfi_pkt_hdr hdr;
 	u64 user_data;
 } __packed;
 
 struct hfi_msg_ping_ack {
-	u32 size;
-	u32 pkt_type;
+	struct hfi_pkt_hdr hdr;
 	u64 user_data;
 } __packed;
 
 struct hfi_msg_event {
-	u32 size;
-	u32 pkt_type;
+	struct hfi_pkt_hdr hdr;
 	u32 session_id;
 	u32 event_id;
 	u32 data1;
@@ -331,8 +328,7 @@ struct hfi_msg_event {
 } __packed;
 
 struct hfi_cmd_ubwc_cfg {
-	u32 size;
-	u32 pkt_type;
+	struct hfi_pkt_hdr hdr;
 	u32 num_params;
 	u32 prop_type;
 	u32 ipe_fetch;
@@ -342,16 +338,14 @@ struct hfi_cmd_ubwc_cfg {
 } __packed;
 
 struct hfi_cmd_create_handle {
-	u32 size;
-	u32 pkt_type;
+	struct hfi_pkt_hdr hdr;
 	u32 handle_type;
 	u32 user_data0;
 	u32 user_data1;
 } __packed;
 
 struct hfi_msg_create_handle_ack {
-	u32 size;
-	u32 pkt_type;
+	struct hfi_pkt_hdr hdr;
 	u32 error;
 	u32 fw_handle;
 	u32 user_data0;
@@ -359,8 +353,7 @@ struct hfi_msg_create_handle_ack {
 } __packed;
 
 struct hfi_cmd_async {
-	u32 size;
-	u32 pkt_type;
+	struct hfi_pkt_hdr hdr;
 	u32 opcode;
 	u32 num_handles;
 	u32 fw_handle;
@@ -370,8 +363,7 @@ struct hfi_cmd_async {
 } __packed;
 
 struct hfi_msg_async_ack {
-	u32 size;
-	u32 pkt_type;
+	struct hfi_pkt_hdr hdr;
 	u32 opcode;
 	u64 user_data0;
 	u64 user_data1;
@@ -379,15 +371,13 @@ struct hfi_msg_async_ack {
 } __packed;
 
 struct hfi_cmd_set_property {
-	u32 size;
-	u32 pkt_type;
+	struct hfi_pkt_hdr hdr;
 	u32 num_prop;
 	u32 prop_data[];
 } __packed;
 
 struct hfi_msg_debug {
-	u32 size;
-	u32 pkt_type;
+	struct hfi_pkt_hdr hdr;
 	u32 msg_type;
 	u32 msg_size;
 	u32 timestamp_hi;
@@ -413,12 +403,14 @@ struct hfi_sfr {
 
 static inline u32 hfi_pkt_size(void *pkt)
 {
-	return ((u32 *)pkt)[0];
+	struct hfi_pkt_hdr *pkt_hdr = pkt;
+	return pkt_hdr->size;
 }
 
 static inline u32 hfi_pkt_type(void *pkt)
 {
-	return ((u32 *)pkt)[1];
+	struct hfi_pkt_hdr *pkt_hdr = pkt;
+	return pkt_hdr->type;
 }
 
 static inline bool hfi_queue_empty(struct hfi_q_hdr *q)
@@ -442,6 +434,8 @@ void icp_hfi_deinit_queues(struct icp_hfi *hfi);
 /* ISR support - called from threaded IRQ handler */
 void icp_hfi_flush_debug_queue(struct icp_hfi *hfi);
 bool icp_hfi_process_msg_queue(struct icp_hfi *hfi);
+
+int icp_hfi_ping(struct icp_hfi *hfi, u64 user_data, u32 timeout_ms);
 
 /* Core operations */
 int icp_hfi_core_init(struct icp_hfi *hfi);
