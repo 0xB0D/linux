@@ -2,7 +2,6 @@
 /*
  * Qualcomm ICP (Image Control Processor) driver for X1E80100
  * 
- * Simplified version: uses DMA addresses directly without remapping
  */
 #define DEBUG
 #include <linux/clk.h>
@@ -89,15 +88,15 @@ static void icp_raise_irq(void *priv)
 {
 	struct camss_icp *icp = priv;
 
-	dev_info(icp->dev, "Raising HOST2ICPINT (CIRQ STATUS before: 0x%x)\n",
-		 readl(icp->cirq_base + CIRQ_OB_STATUS));
+	dev_dbg(icp->dev, "Raising HOST2ICPINT (CIRQ STATUS before: 0x%x)\n",
+		readl(icp->cirq_base + CIRQ_OB_STATUS));
 
 	writel(1, icp->cirq_base + CIRQ_HOST2ICPINT);
 
 	/* Small delay then check if anything changed */
 	udelay(100);
-	dev_info(icp->dev, "CIRQ STATUS after HOST2ICPINT: 0x%x\n",
-		 readl(icp->cirq_base + CIRQ_OB_STATUS));
+	dev_dbg(icp->dev, "CIRQ STATUS after HOST2ICPINT: 0x%x\n",
+		readl(icp->cirq_base + CIRQ_OB_STATUS));
 }
 
 /* Load firmware */
@@ -128,7 +127,8 @@ static int icp_load_firmware(struct camss_icp *icp)
 	if (ret)
 		return ret;
 
-	dev_info(icp->dev, "FW memory: phys=0x%pa size=%llu\n", &res.start, resource_size(&res));
+	dev_dbg(icp->dev, "FW memory: phys=0x%pa size=%llu\n",
+		&res.start, resource_size(&res));
 
 	ret = firmware_request_nowarn(&fw, fw_path, icp->dev);
 	if (ret)
@@ -152,7 +152,7 @@ static int icp_load_firmware(struct camss_icp *icp)
 	release_firmware(fw);
 
 	if (ret == 0) {
-		dev_info(icp->dev, "Firmware loaded: %s (%zd bytes)\n", fw_path, fw_size);
+		dev_dbg(icp->dev, "Firmware loaded: %s (%zd bytes)\n", fw_path, fw_size);
 		icp->fw_phys = res.start;
 		icp->fw_size = fw_size;
 	}
@@ -168,7 +168,7 @@ static irqreturn_t camss_icp_isr_thread(int irq, void *data)
 	/* Re-read status for logging */
 	status = readl(icp->cirq_base + CIRQ_OB_STATUS);
 
-	dev_info(icp->dev, "IRQ thread: status=0x%x\n", status);
+	dev_dbg(icp->dev, "IRQ thread: status=0x%x\n", status);
 
 	if (status & CIRQ_WDT_BITE_WS0) {
 		dev_err(icp->dev, "ICP watchdog bite!\n");
@@ -189,7 +189,7 @@ static irqreturn_t camss_icp_isr(int irq, void *data)
 	struct camss_icp *icp = data;
 	u32 status;
 
-	dev_info(icp->dev, "IRQ ISR\n");
+	dev_dbg(icp->dev, "IRQ ISR\n");
 
 	status = readl(icp->cirq_base + CIRQ_OB_STATUS);
 	if (!status)
@@ -222,22 +222,9 @@ void icp_hfi_latch_regs(struct camss_icp *icp)
 	struct icp_hfi *hfi = &icp->hfi;
 	struct device *dev = hfi->dev;
 
-	/* Program HFI registers with actual DMA addresses */
-	dev_info(dev, "Programming HFI registers with DMA addresses:\n");
-	dev_info(dev, "  SHMEM=0x%llx\n", (u64)hfi->hfi_mem.shmem.dma_addr);
-	dev_info(dev, "  QDSS=0x%llx FWUNCACHED=0x%llx\n", (u64)hfi->hfi_mem.qdss.dma_addr,
-							   (u64)hfi->hfi_mem.fwuncached.dma_addr);
-	dev_info(dev, "  SECHEAP=0x%llx QTBL=0x%llx\n", (u64)hfi->hfi_mem.secheap.dma_addr,
-							(u64)hfi->hfi_mem.q_tbl.dma_addr);
-	dev_info(dev, "  CMD_Q=0x%llx MSQ_Q=0x%llx\n", (u64)hfi->hfi_mem.q_data[HFI_Q_CMD_TYPE].dma_addr,
-						       (u64)hfi->hfi_mem.q_data[HFI_Q_MSG_TYPE].dma_addr);
-	dev_info(dev, "  DBG_Q=0x%llx SFR=0x%llx\n", (u64)hfi->hfi_mem.q_data[HFI_Q_DBG_TYPE].dma_addr,
-						     (u64)hfi->hfi_mem.sfr.dma_addr);
-
 	/* Shared memory */
 	writel(hfi->hfi_mem.shmem.dma_addr, icp->csr_base + HFI_REG_SHARED_MEM_PTR);
 	writel(hfi->hfi_mem.shmem.size, icp->csr_base + HFI_REG_SHARED_MEM_SIZE);
-	//writel(0xfc000000, icp->csr_base + HFI_REG_SHARED_MEM_SIZE);
 
 	/* QTBL - header describing HFI queues */
 	writel(hfi->hfi_mem.q_tbl.dma_addr, icp->csr_base + HFI_REG_QTBL_PTR);
@@ -256,13 +243,13 @@ void icp_hfi_latch_regs(struct camss_icp *icp)
 
 	/* SFR buffer */
 	writel(hfi->hfi_mem.sfr.dma_addr, icp->csr_base + HFI_REG_SFR_PTR);
-#if 1
-	/* IO regions - use standard CAMX values */
+
+	/* IO regions - use standard CAMX values TODO: fix this */
 	writel(0x10c00000, icp->csr_base + HFI_REG_IO_REGION_1_IOVA);
 	writel(0xcf400000, icp->csr_base + HFI_REG_IO_REGION_1_SIZE);
 	writel(0xe0800000, icp->csr_base + HFI_REG_IO_REGION_2_IOVA);
 	writel(0x1e700000, icp->csr_base + HFI_REG_IO_REGION_2_SIZE);
-#endif
+
 }
 
 /* HFI operations */
@@ -315,13 +302,6 @@ static int icp_boot(struct camss_icp *icp)
 	writel(0x7f, icp->cirq_base + CIRQ_OB_CLEAR);
 	writel(CIRQ_ICP2HOSTINT | CIRQ_WDT_BITE_WS0, icp->cirq_base + CIRQ_OB_MASK);
 
-	/* Dump CIRQ state for debugging */
-	dev_info(icp->dev, "CIRQ config: MASK=0x%x STATUS=0x%x\n",
-		 readl(icp->cirq_base + CIRQ_OB_MASK),
-		 readl(icp->cirq_base + CIRQ_OB_STATUS));
-
-	icp_dump_gp_regs(icp, "Pre-fw load");
-
 	/* Load firmware */
 	ret = icp_load_firmware(icp);
 	if (ret)
@@ -333,8 +313,6 @@ static int icp_boot(struct camss_icp *icp)
 		goto err_clk;
 
 	/* Start firmware via TrustZone */
-	icp_dump_gp_regs(icp, "Pre auth and reset");
-	dev_dbg(icp->dev, "Starting ICP via TrustZone\n");
 	ret = qcom_scm_pas_auth_and_reset(icp_res->pas_id);
 	if (ret) {
 		dev_err(icp->dev, "TZ auth_and_reset failed: %d\n", ret);
@@ -353,33 +331,26 @@ static int icp_boot(struct camss_icp *icp)
 	 * After TZ starts the ICP, firmware waits for host to program
 	 * GP registers with memory addresses and signal readiness.
 	 *
-	 * CAMX hfi_reg.h register assignments:
+	 * Register assignments:
 	 *   GP1 (0x24) = FW_VERSION        - firmware writes its version
 	 *   GP2 (0x28) = HOST_ICP_INIT_REQ - host writes 1 ("addresses ready")
 	 *   GP3 (0x2C) = ICP_HOST_INIT_RESP - firmware writes 1 ("ready")
 	 *   GP4-GP18   = memory addresses   - host programs with IOVAs
 	 *
-	 * Sequence (from CAMX cam_hfi_init):
+	 * Sequence: 
 	 *   1. Program GP4-GP18 with memory addresses  [done above]
 	 *   2. Write GP2 = 1 (HOST_ICP_INIT_REQUEST)
 	 *   3. Poll GP3 until ICP_INIT_RESP_SUCCESS (1)
 	 *   4. Read GP1 for firmware version
 	 *
-	 * Previous bug: We wrote 1 to GP2 then polled GP2, which succeeded
-	 * instantly since we read back our own write. Firmware never ran.
 	 */
 
-	icp_dump_gp_regs(icp, "FW Pre-trigger dump");
-
-	/* Signal firmware that addresses are ready */
-	dev_dbg(icp->dev, "Signaling host init request (GP2=1)\n");
+	/* Signal firmware */
 	writel(ICP_INIT_REQUEST_SET, icp->csr_base + HFI_REG_HOST_ICP_INIT_REQ);
 
 	wmb();
 
 	/* Wait for firmware to signal ready via GP3 */
-	dev_dbg(icp->dev, "Waiting for firmware ready (polling GP3)...\n");
-
 	ret = readl_poll_timeout(icp->csr_base + HFI_REG_ICP_HOST_INIT_RESP,
 				 data, data == ICP_INIT_RESP_SUCCESS,
 				 HFI_POLL_DELAY_US, HFI_POLL_TIMEOUT_US);
@@ -398,7 +369,7 @@ static int icp_boot(struct camss_icp *icp)
 
 	/* Read firmware version from GP1 */
 	icp->hfi.fw_version = readl(icp->csr_base + HFI_REG_FW_VERSION);
-	dev_info(icp->dev, "Firmware ready! version=0x%08x\n", icp->hfi.fw_version);
+	dev_dbg(icp->dev, "Firmware ready! version=0x%08x\n", icp->hfi.fw_version);
 
 	/* Dump CIRQ state after FW init */
 	dev_info(icp->dev, "CIRQ after FW init: MASK=0x%x STATUS=0x%x\n",
@@ -487,17 +458,12 @@ static int camss_icp_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	dev_dbg(&pdev->dev, "Using camera_icp_mem reserved memory\n");
-
-	/* Power domains */
 	ret = dev_pm_domain_attach_list(&pdev->dev, &pd_data, &icp->pd_list);
 	if (ret < 0 && ret != -EEXIST) {
 		dev_err(&pdev->dev, "Failed to attach power domains: %d\n", ret);
 		return ret;
 	}
-	dev_dbg(&pdev->dev, "Attached %d power domains\n", ret > 0 ? ret : 1);
 
-	/* Clocks */
 	for (i = 0; i < icp_res->clk_num; i++) {
 		dev_info(&pdev->dev, "clk=%s\n", icp_res->clk_names[i]);
 		icp->clks[i].id = icp_res->clk_names[i];
@@ -578,7 +544,6 @@ static const char * const x1e80100_clk_names [] = {
 	"bps_ahb", "bps_fast_ahb", "bps", "cpas_bps",
 	"ipe_ahb", "ipe_nps_fast_ahb", "ipe_pps_fast_ahb",
 	"ipe_nps", "ipe_pps", "cpas_ipe",
-	"slow_ahb_clk_src", "ife0", "ife0_fast_ahb", "ife1", "ife1_fast_ahb", "sfe0_fast_ahb"
 };
 
 static const char * const x1e80100_noc_names [] = {
@@ -595,7 +560,7 @@ struct camss_icp_resources x1e80100_icp_res = {
 	.noc_names = x1e80100_noc_names,
 	.noc_num = ARRAY_SIZE(x1e80100_noc_names),
 	.hfi_res = {
-		.shmem_size = SZ_1M,	 // change to 0x0FC00000 per downstream 
+		.shmem_size = SZ_1M,	 // change to 0x0FC00000 per downstream ?
 		.qdss_size = SZ_1M,
 		.fwuncached_size = 7 * SZ_1M,
 		/*

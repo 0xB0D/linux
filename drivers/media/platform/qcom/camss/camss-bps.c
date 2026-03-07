@@ -23,6 +23,9 @@
 #include <media/videobuf2-dma-contig.h>
 
 #include "camss-icp.h"
+#include "camss-icp-hfi-frame.h"
+#include "camss-bps-cmd.h"
+#include "camss-bps-iq.h"
 
 #define BPS_NAME		"qcom-camss-bps"
 #define BPS_CLK_MAX		4
@@ -64,6 +67,16 @@ struct bps_ctx {
 	u32 height;
 	u32 src_fmt;
 	u32 dst_fmt;
+	u32 bayer_pattern;
+
+	/* Command buffers (DMA memory for HFI) */
+	struct bps_cmd_bufs *cmd_bufs;
+
+	/* IQ configuration */
+	struct bps_iq_config iq;
+
+	/* Frame counter */
+	u32 frame_id;
 };
 
 /* ============================================================
@@ -271,16 +284,42 @@ static void bps_device_run(void *priv)
 	struct bps_ctx *ctx = priv;
 	struct vb2_v4l2_buffer *src, *dst;
 	struct icp_frame_request req;
+	dma_addr_t input_iova, output_iova;
+	u32 input_size, output_size;
+	u32 input_stride, output_stride;
+	int ret;
 
 	src = v4l2_m2m_next_src_buf(ctx->fh.m2m_ctx);
 	dst = v4l2_m2m_next_dst_buf(ctx->fh.m2m_ctx);
 
-	req.input_iova = vb2_dma_contig_plane_dma_addr(&src->vb2_buf, 0);
-	req.input_size = vb2_plane_size(&src->vb2_buf, 0);
-	req.output_iova = vb2_dma_contig_plane_dma_addr(&dst->vb2_buf, 0);
-	req.output_size = vb2_plane_size(&dst->vb2_buf, 0);
-	req.cmdbufs_iova = 0;
-	req.cmdbufs_size = 0;
+	input_iova = vb2_dma_contig_plane_dma_addr(&src->vb2_buf, 0);
+	input_size = vb2_plane_size(&src->vb2_buf, 0);
+	input_stride = ctx->width * 2;	/* 10-bit packed = ~2 bytes/pixel */
+
+	output_iova = vb2_dma_contig_plane_dma_addr(&dst->vb2_buf, 0);
+	output_size = vb2_plane_size(&dst->vb2_buf, 0);
+	output_stride = ctx->width;	/* NV12 Y plane stride */
+
+	/* Build frame command with IQ settings */
+	ret = bps_build_frame_cmd(ctx->cmd_bufs,
+				  ctx->frame_id++,
+				  ctx->width, ctx->height,
+				  ctx->bayer_pattern,
+				  input_iova, input_stride, input_size,
+				  output_iova, output_stride, output_size,
+				  &ctx->iq);
+	if (ret) {
+		bps_frame_done(ctx->icp_ctx, -EIO);
+		return;
+	}
+
+	/* Submit to ICP */
+	req.input_iova = input_iova;
+	req.input_size = input_size;
+	req.output_iova = output_iova;
+	req.output_size = output_size;
+	req.cmdbufs_iova = bps_get_cmd_iova(ctx->cmd_bufs);
+	req.cmdbufs_size = bps_get_cmd_size(ctx->cmd_bufs);
 	req.priv = ctx;
 
 	if (icp_ctx_submit_frame(ctx->icp_ctx, &req))
@@ -345,10 +384,19 @@ static int bps_start_streaming(struct vb2_queue *vq, unsigned int count)
 	struct bps_device *bps = ctx->bps;
 	int ret;
 
+	/* Allocate command buffers */
+	ctx->cmd_bufs = bps_cmd_bufs_alloc(bps->dev);
+	if (!ctx->cmd_bufs)
+		return -ENOMEM;
+
+	/* Initialize default IQ (passthrough demosaic) */
+	bps_iq_init_passthrough(&ctx->iq);
+	ctx->frame_id = 0;
+
 	/* Power on BPS (BPS manages its own power) */
 	ret = bps_power_on(bps);
 	if (ret)
-		return ret;
+		goto err_bufs;
 
 	/*
 	 * Create ICP context - ICP boots itself automatically
@@ -359,11 +407,17 @@ static int bps_start_streaming(struct vb2_queue *vq, unsigned int count)
 	if (IS_ERR(ctx->icp_ctx)) {
 		ret = PTR_ERR(ctx->icp_ctx);
 		ctx->icp_ctx = NULL;
-		bps_power_off(bps);
-		return ret;
+		goto err_power;
 	}
 
 	return 0;
+
+err_power:
+	bps_power_off(bps);
+err_bufs:
+	bps_cmd_bufs_free(bps->dev, ctx->cmd_bufs);
+	ctx->cmd_bufs = NULL;
+	return ret;
 }
 
 static void bps_stop_streaming(struct vb2_queue *vq)
@@ -388,6 +442,12 @@ static void bps_stop_streaming(struct vb2_queue *vq)
 	}
 
 	bps_power_off(bps);
+
+	/* Free command buffers */
+	if (ctx->cmd_bufs) {
+		bps_cmd_bufs_free(bps->dev, ctx->cmd_bufs);
+		ctx->cmd_bufs = NULL;
+	}
 }
 
 static const struct vb2_ops bps_vb2_ops = {
@@ -450,6 +510,7 @@ static int bps_open(struct file *file)
 	ctx->width = 4096;
 	ctx->height = 3072;
 	ctx->src_fmt = V4L2_PIX_FMT_SRGGB10;
+	ctx->bayer_pattern = HFI_BAYER_RGGB;  /* Default, updated by s_fmt */
 
 	v4l2_fh_init(&ctx->fh, &bps->vdev);
 	ctx->fh.m2m_ctx = v4l2_m2m_ctx_init(bps->m2m_dev, ctx, bps_queue_init);
@@ -530,10 +591,33 @@ static int camss_bps_probe(struct platform_device *pdev)
 	of_property_read_u32(dev->of_node, "ubwc-fetch-cfg", &bps->ubwc.fetch_cfg);
 	of_property_read_u32(dev->of_node, "ubwc-write-cfg", &bps->ubwc.write_cfg);
 
-	/* Get ICP reference */
-	bps->icp = icp_get(dev);
-	if (IS_ERR(bps->icp))
-		return PTR_ERR(bps->icp);
+	/* Get ICP reference via phandle */
+	{
+		struct device_node *icp_np;
+		struct platform_device *icp_pdev;
+
+		icp_np = of_parse_phandle(dev->of_node, "qcom,icp", 0);
+		if (!icp_np) {
+			dev_err(dev, "missing qcom,icp phandle\n");
+			return -ENODEV;
+		}
+
+		icp_pdev = of_find_device_by_node(icp_np);
+		of_node_put(icp_np);
+
+		if (!icp_pdev)
+			return -EPROBE_DEFER;
+
+		bps->icp = platform_get_drvdata(icp_pdev);
+		if (!bps->icp) {
+			put_device(&icp_pdev->dev);
+			return -EPROBE_DEFER;
+		}
+
+		/* Keep reference to ICP device */
+		get_device(bps->icp->dev);
+		put_device(&icp_pdev->dev);
+	}
 
 	/* Set UBWC config in ICP */
 	icp_set_ubwc_config(bps->icp, HFI_DEV_TYPE_BPS, &bps->ubwc);
@@ -576,7 +660,7 @@ err_m2m:
 err_v4l2:
 	v4l2_device_unregister(&bps->v4l2_dev);
 err_icp:
-	icp_put(bps->icp);
+	put_device(bps->icp->dev);
 	return ret;
 }
 
@@ -588,7 +672,7 @@ static void camss_bps_remove(struct platform_device *pdev)
 	video_unregister_device(&bps->vdev);
 	v4l2_m2m_release(bps->m2m_dev);
 	v4l2_device_unregister(&bps->v4l2_dev);
-	icp_put(bps->icp);
+	put_device(bps->icp->dev);
 }
 
 static const struct of_device_id camss_bps_dt_match[] = {

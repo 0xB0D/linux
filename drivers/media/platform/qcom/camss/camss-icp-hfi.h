@@ -81,8 +81,12 @@
 #define HFI_IPEBPS_CMD_DESTROY			0x08
 
 /* Device Types */
+#define HFI_DEV_TYPE_BPS			1
+#define HFI_DEV_TYPE_IPE_RT			2
 #define HFI_DEV_TYPE_IPE			3
-#define HFI_DEV_TYPE_BPS			4
+#define HFI_DEV_TYPE_IPE_SEMI_RT		4
+#define HFI_DEV_TYPE_BPS_RT			5
+#define HFI_DEV_TYPE_BPS_SEMI_RT		6
 
 /* Events */
 #define HFI_EVENT_SYS_ERROR			0x01
@@ -340,16 +344,16 @@ struct hfi_cmd_ubwc_cfg {
 struct hfi_cmd_create_handle {
 	struct hfi_pkt_hdr hdr;
 	u32 handle_type;
-	u32 user_data0;
-	u32 user_data1;
+	u64 user_data0;
+	u64 user_data1;
 } __packed;
 
 struct hfi_msg_create_handle_ack {
 	struct hfi_pkt_hdr hdr;
 	u32 error;
 	u32 fw_handle;
-	u32 user_data0;
-	u32 user_data1;
+	u64 user_data0;
+	u64 user_data1;
 } __packed;
 
 struct hfi_cmd_async {
