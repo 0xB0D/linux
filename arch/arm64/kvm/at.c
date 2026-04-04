@@ -1709,6 +1709,7 @@ static int __lsui_swap_desc(u64 __user *ptep, u64 old, u64 new)
 	return ret;
 }
 
+#ifdef CONFIG_ARM64_LSE_ATOMICS
 static int __lse_swap_desc(u64 __user *ptep, u64 old, u64 new)
 {
 	u64 tmp = old;
@@ -1733,6 +1734,12 @@ static int __lse_swap_desc(u64 __user *ptep, u64 old, u64 new)
 
 	return ret;
 }
+#else
+static int __lse_swap_desc(u64 __user *ptep, u64 old, u64 new)
+{
+	return -EINVAL;
+}
+#endif
 
 static int __llsc_swap_desc(u64 __user *ptep, u64 old, u64 new)
 {
