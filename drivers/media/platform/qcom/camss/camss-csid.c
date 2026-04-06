@@ -1278,21 +1278,21 @@ static int csid_link_setup(struct media_entity *entity,
 		csid->phy.lane_cnt = lane_cfg->num_data;
 		csid->phy.lane_assign = csid_get_lane_assign(lane_cfg);
 	}
-	/* Decide which virtual channels to enable based on which source pads are enabled */
+	/* Decide which ports to enable based on which source pads are enabled */
 	if (local->flags & MEDIA_PAD_FL_SOURCE) {
 		struct v4l2_subdev *sd = media_entity_to_v4l2_subdev(entity);
 		struct csid_device *csid = v4l2_get_subdevdata(sd);
 		struct device *dev = csid->camss->dev;
 
 		if (flags & MEDIA_LNK_FL_ENABLED)
-			csid->phy.en_vc |= BIT(local->index - 1);
+			csid->phy.en_port |= BIT(local->index - 1);
 		else
-			csid->phy.en_vc &= ~BIT(local->index - 1);
+			csid->phy.en_port &= ~BIT(local->index - 1);
 
 		csid->phy.need_vc_update = true;
 
-		dev_dbg(dev, "%s: Enabled CSID virtual channels mask 0x%x\n",
-			__func__, csid->phy.en_vc);
+		dev_dbg(dev, "%s: Enabled CSID ports mask 0x%x\n",
+			__func__, csid->phy.en_port);
 	}
 
 	return 0;
