@@ -329,7 +329,7 @@ static void csid_configure_stream(struct csid_device *csid, u8 enable)
 
 	/* Loop through all enabled ports and configure a stream for each */
 	for (i = 0; i < MSM_CSID_MAX_SRC_STREAMS; i++)
-		if (csid->phy.en_vc & BIT(i)) {
+		if (csid->phy.en_port & BIT(i)) {
 			if (tg->enabled)
 				__csid_configure_testgen(csid, enable, i, 0);
 
@@ -370,7 +370,7 @@ static irqreturn_t csid_isr(int irq, void *dev)
 
 	/* Read and clear IRQ status for each enabled RDI channel */
 	for (i = 0; i < MSM_CSID_MAX_SRC_STREAMS; i++)
-		if (csid->phy.en_vc & BIT(i)) {
+		if (csid->phy.en_port & BIT(i)) {
 			val = readl_relaxed(csid->base + CSID_CSI2_RDIN_IRQ_STATUS(i));
 			writel_relaxed(val, csid->base + CSID_CSI2_RDIN_IRQ_CLEAR(i));
 		}
