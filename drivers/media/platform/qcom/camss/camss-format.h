@@ -59,4 +59,20 @@ u32 camss_format_find_code(u32 *code, unsigned int n_code, unsigned int index, u
 int camss_format_find_format(u32 code, u32 pixelformat, const struct camss_format_info *formats,
 			     unsigned int nformats);
 
+/*
+ * Pixel pattern encoding — shared between CSID CAMIF and VFE bus WM
+ */
+enum camss_pixel_pattern {
+	/* Bayer */
+	CAMSS_PIXEL_PATTERN_RGRGRG	= 0,	/* SRGGB */
+	CAMSS_PIXEL_PATTERN_GRGRGR	= 1,	/* SGRBG */
+	CAMSS_PIXEL_PATTERN_BGBGBG	= 2,	/* SBGGR */
+	CAMSS_PIXEL_PATTERN_GBGBGB	= 3,	/* SGBRG */
+	/* YUV */
+	CAMSS_PIXEL_PATTERN_YCBYCR	= 4,	/* YUYV */
+	CAMSS_PIXEL_PATTERN_YCRYCB	= 5,	/* YVYU */
+	CAMSS_PIXEL_PATTERN_CBYCRY	= 6,	/* UYVY */
+	CAMSS_PIXEL_PATTERN_CRYCBY	= 7,	/* VYUY */
+};
+
 #endif /* __CAMSS_FORMAT_H__ */
