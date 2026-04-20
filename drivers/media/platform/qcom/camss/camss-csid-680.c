@@ -13,6 +13,42 @@
 #include "camss-csid.h"
 #include "camss-csid-gen2.h"
 
+static enum camss_pixel_pattern camss_pixel_pattern_from_code(u32 code)
+{
+	switch (code) {
+	case MEDIA_BUS_FMT_SRGGB8_1X8:
+	case MEDIA_BUS_FMT_SRGGB10_1X10:
+	case MEDIA_BUS_FMT_SRGGB12_1X12:
+	case MEDIA_BUS_FMT_SRGGB14_1X14:
+		return CAMSS_PIXEL_PATTERN_RGRGRG;
+	case MEDIA_BUS_FMT_SGRBG8_1X8:
+	case MEDIA_BUS_FMT_SGRBG10_1X10:
+	case MEDIA_BUS_FMT_SGRBG12_1X12:
+	case MEDIA_BUS_FMT_SGRBG14_1X14:
+		return CAMSS_PIXEL_PATTERN_GRGRGR;
+	case MEDIA_BUS_FMT_SBGGR8_1X8:
+	case MEDIA_BUS_FMT_SBGGR10_1X10:
+	case MEDIA_BUS_FMT_SBGGR12_1X12:
+	case MEDIA_BUS_FMT_SBGGR14_1X14:
+		return CAMSS_PIXEL_PATTERN_BGBGBG;
+	case MEDIA_BUS_FMT_SGBRG8_1X8:
+	case MEDIA_BUS_FMT_SGBRG10_1X10:
+	case MEDIA_BUS_FMT_SGBRG12_1X12:
+	case MEDIA_BUS_FMT_SGBRG14_1X14:
+		return CAMSS_PIXEL_PATTERN_GBGBGB;
+	case MEDIA_BUS_FMT_YUYV8_1X16:
+		return CAMSS_PIXEL_PATTERN_YCBYCR;
+	case MEDIA_BUS_FMT_YVYU8_1X16:
+		return CAMSS_PIXEL_PATTERN_YCRYCB;
+	case MEDIA_BUS_FMT_UYVY8_1X16:
+		return CAMSS_PIXEL_PATTERN_CBYCRY;
+	case MEDIA_BUS_FMT_VYUY8_1X16:
+		return CAMSS_PIXEL_PATTERN_CRYCBY;
+	default:
+		return CAMSS_PIXEL_PATTERN_RGRGRG;
+	}
+}
+
 #define CSID_TOP_IO_PATH_CFG0(csid)				(0x4 * (csid))
 #define		CSID_TOP_IO_PATH_CFG0_INTERNAL_CSID		BIT(0)
 #define		CSID_TOP_IO_PATH_CFG0_SFE_0			BIT(1)
@@ -168,7 +204,10 @@
 /* IPP path (port 3 on non-lite) */
 #define CSID_IPP_CFG0						0x300
 #define CSID_IPP_CTRL						0x304
+#define 	CSID_IPP_CTRL_START_CMD				BIT(0)
 #define CSID_IPP_CFG1						0x310
+#define CSID_IPP_CAMIF_FRAME_CFG				0x330
+#define 	CAMIF_PIXEL_PATTERN_SHIFT			24
 #define CSID_IPP_FRM_DROP_PERIOD				0x378
 #define CSID_IPP_IRQ_SUBSAMPLE_PATTERN				0x37c
 #define CSID_IPP_IRQ_SUBSAMPLE_PERIOD				0x380
@@ -182,10 +221,13 @@
 #define IPP_CFG1_CROP_V_EN					BIT(13)
 
 #define IPP_PORT						3
-#define IS_IPP(port)						(port == IPP_PORT)
+#define IS_IPP(csid, port)					(!csid_is_lite(csid) && port == IPP_PORT)
 
 static inline int reg_update_rdi(struct csid_device *csid, int n)
 {
+	if (IS_IPP(csid, n))
+		return BIT(0) + BIT(16);  /* RUP_IPP0 + AUP_IPP0 */
+
 	return BIT(4 + n) + BIT(20 + n);
 }
 
@@ -238,7 +280,10 @@ static void __csid_ctrl_rdi(struct csid_device *csid, int enable, u8 rdi)
 	else
 		val = CSID_RDI_CTRL_HALT_CMD_HALT_AT_FRAME_BOUNDARY;
 
-	writel(val, csid->base + CSID_RDI_CTRL(rdi));
+	if (IS_IPP(csid, rdi))
+		writel(val, csid->base + CSID_IPP_CTRL);
+	else
+		writel(val, csid->base + CSID_RDI_CTRL(rdi));
 }
 
 static void __csid_configure_top(struct csid_device *csid)
@@ -266,7 +311,7 @@ static void __csid_configure_rdi_stream(struct csid_device *csid, u8 enable, u8 
 
 	val = 0;
 
-	if (IS_IPP(port)) {
+	if (IS_IPP(csid, port)) {
 		offset = CSID_IPP_CFG0;
 	} else {
 		offset = CSID_RDI_FRM_DROP_PERIOD(port);
@@ -287,27 +332,46 @@ static void __csid_configure_rdi_stream(struct csid_device *csid, u8 enable, u8 
 	 */
 	dt_id = port & 0x03;
 
+	/* TODO: embed into struct csid_format_info */
+	enum camss_pixel_pattern pixel_pattern = camss_pixel_pattern_from_code(format->code);
+
 	/* note: for non-RDI path, this should be format->decode_format */
-	val |= DECODE_FORMAT_PAYLOAD_ONLY << RDI_CFG0_DECODE_FORMAT;
+	if (IS_IPP(csid, port))
+		val |= format->decode_format << RDI_CFG0_DECODE_FORMAT;
+	else
+		val |= DECODE_FORMAT_PAYLOAD_ONLY << RDI_CFG0_DECODE_FORMAT;
+	
 	val |= format->data_type << RDI_CFG0_DATA_TYPE;
 	val |= vc << RDI_CFG0_VIRTUAL_CHANNEL;
 	val |= dt_id << RDI_CFG0_DT_ID;
 
-	if (IS_IPP(port)) {
+	if (IS_IPP(csid, port)) {
 		offset = CSID_IPP_CFG0;
 	} else {
 		offset = CSID_RDI_CFG0(port);
 	}
 	writel(val, csid->base + offset);
 
-	if (IS_IPP(port)) {
-		val = IPP_CFG1_TIMESTAMP_STB_FRAME;
-		val |= IPP_CFG1_TIMESTAMP_EN;
-		val |= IPP_CFG1_DROP_H_EN;
-		val |= IPP_CFG1_DROP_V_EN;
-		val |= IPP_CFG1_CROP_H_EN;
-		val |= IPP_CFG1_CROP_V_EN;
+	if (IS_IPP(csid, port)) {
+		writel(pixel_pattern << CAMIF_PIXEL_PATTERN_SHIFT,
+		       csid->base + CSID_IPP_CAMIF_FRAME_CFG);
+
+		#define CSID_IPP_HCROP   0x35c
+		#define CSID_IPP_VCROP   0x360
+
+		/* In the IS_IPP(csid, port) CFG1 block, after writing CFG1: */
+		writel((input_format->width - 1) << 16, csid->base + CSID_IPP_HCROP);
+		writel((input_format->height - 1) << 16, csid->base + CSID_IPP_VCROP);
+
+		val = 2;                        /* TIMESTAMP_STB_SEL = 2 */
+		val |= (4 << 4);               /* MIN_HBI = 4 */
+		val |= IPP_CFG1_TIMESTAMP_EN;  /* BIT(9) */
+		val |= IPP_CFG1_CROP_H_EN;     /* BIT(12) */
+		val |= IPP_CFG1_CROP_V_EN;     /* BIT(13) */
+		val |= BIT(14);                /* PIX_STORE_EN */
+		val |= BIT(16);                /* EARLY_EOF_EN */
 		offset = CSID_IPP_CFG1;
+
 	} else {
 		val = RDI_CFG1_TIMESTAMP_STB_FRAME;
 		val |= RDI_CFG1_BYTE_CNTR_EN;
@@ -322,7 +386,7 @@ static void __csid_configure_rdi_stream(struct csid_device *csid, u8 enable, u8 
 	writel(val, csid->base + offset);
 
 
-	if (IS_IPP(port)) {
+	if (IS_IPP(csid, port)) {
 		offset = CSID_IPP_IRQ_SUBSAMPLE_PERIOD;
 	} else {
 		offset = CSID_RDI_IRQ_SUBSAMPLE_PERIOD(port);
@@ -330,7 +394,7 @@ static void __csid_configure_rdi_stream(struct csid_device *csid, u8 enable, u8 
 	val = 0;
 	writel(val, csid->base + offset);
 
-	if (IS_IPP(port)) {
+	if (IS_IPP(csid, port)) {
 		offset = CSID_IPP_IRQ_SUBSAMPLE_PATTERN;
 	} else {
 		offset = CSID_RDI_IRQ_SUBSAMPLE_PATTERN(port);
@@ -338,7 +402,7 @@ static void __csid_configure_rdi_stream(struct csid_device *csid, u8 enable, u8 
 	val = 1;
 	writel(val, csid->base + offset);
 
-	if (IS_IPP(port)) {
+	if (IS_IPP(csid, port)) {
 		offset = CSID_IPP_CTRL;
 	} else {
 		offset = CSID_RDI_CTRL(port);
@@ -346,7 +410,7 @@ static void __csid_configure_rdi_stream(struct csid_device *csid, u8 enable, u8 
 	val = 0;
 	writel(val, csid->base + offset);
 
-	if (IS_IPP(port)) {
+	if (IS_IPP(csid, port)) {
 		offset = CSID_IPP_CFG0;
 	} else {
 		offset = CSID_RDI_CFG0(port);
@@ -357,6 +421,11 @@ static void __csid_configure_rdi_stream(struct csid_device *csid, u8 enable, u8 
 	else
 		val &= ~RDI_CFG0_ENABLE;
 	writel(val, csid->base + offset);
+
+	if (IS_IPP(csid, port)) {
+		val = CSID_IPP_CTRL_START_CMD;
+		writel(val, csid->base + CSID_IPP_CTRL);
+	}
 }
 
 static void csid_configure_stream(struct csid_device *csid, u8 enable)
@@ -407,7 +476,10 @@ static int csid_reset(struct csid_device *csid)
 
 	for (i = 0; i < MSM_CSID_MAX_SRC_STREAMS; i++) {
 		/* Enable RUP done for the client port */
-		writel(CSID_CSI2_RDIN_RUP_DONE, csid->base + CSID_CSI2_RDIN_IRQ_MASK(i));
+		if (IS_IPP(csid, i))
+			writel(CSID_CSI2_RDIN_RUP_DONE | CSID_CSI2_RDIN_INFO_CAMIF_SOF | CSID_CSI2_RDIN_INFO_CAMIF_EOF | CSID_CSI2_RDIN_INFO_INPUT_SOF | CSID_CSI2_RDIN_INFO_INPUT_EOF, csid->base + 0x0B0); /* IPP_IRQ_MASK */ 
+		else
+			writel(CSID_CSI2_RDIN_RUP_DONE, csid->base + CSID_CSI2_RDIN_IRQ_MASK(i));
 	}
 
 	/* Clear RDI status */
@@ -452,11 +524,20 @@ static irqreturn_t csid_isr(int irq, void *dev)
 	buf_done_val = readl(csid->base + CSID_BUF_DONE_IRQ_STATUS);
 	writel(buf_done_val, csid->base + CSID_BUF_DONE_IRQ_CLEAR);
 
+	dev_info(csid->camss->dev, "CSID_BUF_DONE_IRQ_STATUS = 0x%08x\n", buf_done_val);
+
 	/* Process state for each RDI channel */
 	for (i = 0; i < MSM_CSID_MAX_SRC_STREAMS; i++) {
-		val = readl(csid->base + CSID_CSI2_RDIN_IRQ_STATUS(i));
-		if (val)
-			writel(val, csid->base + CSID_CSI2_RDIN_IRQ_CLEAR(i));
+		if (IS_IPP(csid, i)) {
+			val = readl(csid->base + 0x0AC);  /* IPP_IRQ_STATUS */
+			if (val)
+				writel(val, csid->base + 0x0B4);  /* IPP_IRQ_CLEAR */
+			dev_info(csid->camss->dev, "IPP_IRQ_STATUS = 0x%08x\n", val);
+		} else {
+			val = readl(csid->base + CSID_CSI2_RDIN_IRQ_STATUS(i));
+			if (val)
+				writel(val, csid->base + CSID_CSI2_RDIN_IRQ_CLEAR(i));
+		}
 
 		if (val & CSID_CSI2_RDIN_RUP_DONE)
 			csid_rup_complete(csid, i);

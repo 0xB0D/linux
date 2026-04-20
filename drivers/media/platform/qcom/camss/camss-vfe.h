@@ -144,6 +144,37 @@ struct vfe_subdev_resources {
 	const struct camss_formats *formats_pix;
 };
 
+/* ================================================================
+ * Per-VFE stats state
+ *
+ * Designed to grow: add DMA buffers and configuration for
+ * additional stats engines (AEC_BE, AWB_BG, etc.) as needed.
+ * ================================================================ */
+
+#include <linux/dma-mapping.h>
+#include <linux/io.h>
+
+struct vfe_stats_buf {
+	void *vaddr;
+	dma_addr_t dma_addr;
+	u32 size;
+};
+
+struct vfe680_stats {
+	/* Per-engine DMA buffers */
+	struct vfe_stats_buf bhist;
+
+	/* Tracked configuration (for output interpretation) */
+	u32 bhist_rgn_h_num;
+	u32 bhist_rgn_v_num;
+
+	/* Frame counter (incremented by caller at SOF) */
+	u32 frame_count;
+
+	bool active;
+};
+
+
 struct vfe_device {
 	struct camss *camss;
 	u8 id;
@@ -170,6 +201,7 @@ struct vfe_device {
 	struct camss_video_ops video_ops;
 	struct device *genpd;
 	struct device_link *genpd_link;
+	struct vfe680_stats stats;
 };
 
 struct camss_subdev_resources;
