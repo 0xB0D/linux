@@ -134,6 +134,7 @@ struct vfe_isr_ops {
 
 struct vfe_subdev_resources {
 	bool is_lite;
+	bool ipp_en;
 	u8 line_num;
 	bool has_pd;
 	char *pd_name;
