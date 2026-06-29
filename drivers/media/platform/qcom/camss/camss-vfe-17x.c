@@ -392,7 +392,7 @@ static int vfe_get_output(struct vfe_line *line)
 
 	spin_lock_irqsave(&vfe->output_lock, flags);
 
-	output = &line->output;
+	output = &line->output[0];
 	if (output->state > VFE_OUTPUT_RESERVED) {
 		dev_err(vfe->camss->dev, "Output is running\n");
 		goto error;
@@ -490,7 +490,7 @@ static void vfe_isr_reg_update(struct vfe_device *vfe, enum vfe_line_id line_id)
 	spin_lock_irqsave(&vfe->output_lock, flags);
 	vfe->res->hw_ops->reg_update_clear(vfe, line_id);
 
-	output = &vfe->line[line_id].output;
+	output = &vfe->line[line_id].output[0];
 
 	if (output->wait_reg_update) {
 		output->wait_reg_update = 0;
@@ -521,7 +521,7 @@ static void vfe_isr_wm_done(struct vfe_device *vfe, u8 wm)
 				    "Received wm done for unmapped index\n");
 		goto out_unlock;
 	}
-	output = &vfe->line[vfe->wm_output_map[wm]].output;
+	output = &vfe->line[vfe->wm_output_map[wm]].output[0];
 
 	ready_buf = output->buf[0];
 	if (!ready_buf) {
