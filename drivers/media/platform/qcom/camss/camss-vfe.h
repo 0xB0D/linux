@@ -57,9 +57,15 @@ enum vfe_line_id {
 	VFE_LINE_NUM_MAX = 4
 };
 
+struct vfe_wm {
+	u8 bus_client;
+};
+
+#define VFE_MAX_WM_PER_OUTPUT 3
+
 struct vfe_output {
 	u8 wm_num;
-	u8 wm_idx[3];
+	struct vfe_wm wm[VFE_MAX_WM_PER_OUTPUT];
 
 	struct camss_buffer *buf[2];
 	struct camss_buffer *last_buffer;

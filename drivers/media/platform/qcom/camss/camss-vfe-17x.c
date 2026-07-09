@@ -405,7 +405,7 @@ static int vfe_get_output(struct vfe_line *line)
 		dev_err(vfe->camss->dev, "Can not reserve wm\n");
 		goto error_get_wm;
 	}
-	output->wm_idx[0] = wm_idx;
+	output->wm[0].bus_client = wm_idx;
 
 	output->drop_update_idx = 0;
 
@@ -414,7 +414,7 @@ static int vfe_get_output(struct vfe_line *line)
 	return 0;
 
 error_get_wm:
-	vfe_release_wm(vfe, output->wm_idx[0]);
+	vfe_release_wm(vfe, output->wm[0].bus_client);
 	output->state = VFE_OUTPUT_OFF;
 error:
 	spin_unlock_irqrestore(&vfe->output_lock, flags);
@@ -541,7 +541,7 @@ static void vfe_isr_wm_done(struct vfe_device *vfe, u8 wm)
 	output->buf[index] = vfe_buf_get_pending(output);
 
 	if (output->buf[index])
-		vfe_wm_update(vfe, output->wm_idx[0], output->buf[index]->addr[0], line);
+		vfe_wm_update(vfe, output->wm[0].bus_client, output->buf[index]->addr[0], line);
 	else
 		output->gen2.active_num--;
 
