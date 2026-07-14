@@ -89,7 +89,7 @@ static void vfe_wm_start(struct vfe_device *vfe, u8 wm, struct vfe_line *line)
 	struct v4l2_pix_format_mplane *pix =
 		&line->output[0].video_out.active_fmt.fmt.pix_mp;
 
-	wm = RDI_WM(wm); /* map to actual WM used (from wm=RDI index) */
+	wm = line->output[0].wm[0].bus_client;
 
 	/* no clock gating at bus input */
 	writel_relaxed(WM_CGC_OVERRIDE_ALL, vfe->base + VFE_BUS_WM_CGC_OVERRIDE);
@@ -117,14 +117,14 @@ static void vfe_wm_start(struct vfe_device *vfe, u8 wm, struct vfe_line *line)
 
 static void vfe_wm_stop(struct vfe_device *vfe, u8 wm, struct vfe_line *line)
 {
-	wm = RDI_WM(wm); /* map to actual WM used (from wm=RDI index) */
+	wm = line->output[0].wm[0].bus_client;
 	writel_relaxed(0, vfe->base + VFE_BUS_WM_CFG(wm));
 }
 
 static void vfe_wm_update(struct vfe_device *vfe, u8 wm, u32 addr,
 			  struct vfe_line *line)
 {
-	wm = RDI_WM(wm); /* map to actual WM used (from wm=RDI index) */
+	wm = line->output[0].wm[0].bus_client;
 	writel_relaxed(addr, vfe->base + VFE_BUS_WM_IMAGE_ADDR(wm));
 }
 
@@ -155,7 +155,7 @@ static void vfe_enable_irq(struct vfe_device *vfe)
 		if (vfe->line[i].output[0].state == VFE_OUTPUT_RESERVED ||
 		    vfe->line[i].output[0].state == VFE_OUTPUT_ON) {
 			bus_irq_mask |= bus_irq_mask_rup(vfe, i)
-					| bus_irq_mask_comp_done(vfe, RDI_COMP_GROUP(i));
+					| bus_irq_mask_comp_done(vfe, vfe->line[i].output[0].comp_group);
 			}
 	}
 
@@ -196,8 +196,8 @@ static irqreturn_t vfe_isr(int irq, void *dev)
 		}
 
 		/* Loop through all WMs IRQs */
-		for (i = 0; i < MSM_VFE_IMAGE_MASTERS_NUM; i++) {
-			if (status & bus_irq_mask_comp_done(vfe, RDI_COMP_GROUP(i)))
+		for (i = 0; i < VFE_LINE_NUM_MAX; i++) {
+			if (status & bus_irq_mask_comp_done(vfe, vfe->line[i].output[0].comp_group))
 				vfe_buf_done(vfe, i);
 		}
 	}
@@ -248,6 +248,27 @@ static const struct camss_video_ops vfe_video_ops_480 = {
 static void vfe_subdev_init(struct device *dev, struct vfe_device *vfe)
 {
 	vfe->video_ops = vfe_video_ops_480;
+
+	/* RDI0 */
+	vfe->line[VFE_LINE_RDI0].output[0].wm_num = 1;
+	vfe->line[VFE_LINE_RDI0].output[0].wm[0].bus_client = VFE_WM_RDI0;
+	vfe->line[VFE_LINE_RDI0].output[0].wm[0].plane = 0;
+	vfe->line[VFE_LINE_RDI0].output[0].comp_group = VFE_V3_COMP_GRP_11;
+	vfe->line[VFE_LINE_RDI0].output[0].type = VFE_OUTPUT_TYPE_PIXEL_RAW;
+
+	/* RDI1 */
+	vfe->line[VFE_LINE_RDI1].output[0].wm_num = 1;
+	vfe->line[VFE_LINE_RDI1].output[0].wm[0].bus_client = VFE_WM_RDI1;
+	vfe->line[VFE_LINE_RDI1].output[0].wm[0].plane = 0;
+	vfe->line[VFE_LINE_RDI1].output[0].comp_group = VFE_V3_COMP_GRP_12;
+	vfe->line[VFE_LINE_RDI1].output[0].type = VFE_OUTPUT_TYPE_PIXEL_RAW;
+
+	/* RDI2 */
+	vfe->line[VFE_LINE_RDI2].output[0].wm_num = 1;
+	vfe->line[VFE_LINE_RDI2].output[0].wm[0].bus_client = VFE_WM_RDI2;
+	vfe->line[VFE_LINE_RDI2].output[0].wm[0].plane = 0;
+	vfe->line[VFE_LINE_RDI2].output[0].comp_group = VFE_V3_COMP_GRP_13;
+	vfe->line[VFE_LINE_RDI2].output[0].type = VFE_OUTPUT_TYPE_PIXEL_RAW;
 }
 
 static void vfe_isr_read(struct vfe_device *vfe, u32 *value0, u32 *value1)
