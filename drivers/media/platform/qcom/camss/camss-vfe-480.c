@@ -149,16 +149,24 @@ static void vfe_wm_update(struct vfe_device *vfe, u8 wm, u32 addr,
 	writel_relaxed(addr, vfe->base + VFE_BUS_WM_IMAGE_ADDR(wm));
 }
 
+static inline u32 reg_update_src(struct vfe_device *vfe, enum vfe_line_id line_id)
+{
+	if (!vfe_is_lite(vfe) && vfe->line[line_id].is_pix)
+		return REG_UPDATE_IPP;
+
+	return REG_UPDATE_RDI(vfe, line_id);
+}
+
 static void vfe_reg_update(struct vfe_device *vfe, enum vfe_line_id line_id)
 {
-	vfe->reg_update |= REG_UPDATE_RDI(vfe, line_id);
+	vfe->reg_update |= reg_update_src(vfe, line_id);
 	writel_relaxed(vfe->reg_update, vfe->base + VFE_REG_UPDATE_CMD);
 }
 
 static inline void vfe_reg_update_clear(struct vfe_device *vfe,
 					enum vfe_line_id line_id)
 {
-	vfe->reg_update &= ~REG_UPDATE_RDI(vfe, line_id);
+	vfe->reg_update &= ~reg_update_src(vfe, line_id);
 }
 
 static void vfe_enable_irq(struct vfe_device *vfe)
