@@ -85,9 +85,18 @@ struct vfe_wm {
 
 #define VFE_MAX_WM_PER_OUTPUT 3
 
+typedef enum vfe_output_type {
+	VFE_OUTPUT_TYPE_PIXEL_RAW = 0,
+	VFE_OUTPUT_TYPE_PIXEL_YUV,
+	VFE_OUTPUT_TYPE_PIXEL_YUV_SCALED,
+	VFE_OUTPUT_TYPE_STATS,
+	VFE_OUTPUT_TYPE_PARAMS,
+}vfe_output_type;
+
 struct vfe_output {
 	u8 comp_group;
 	u8 wm_num;
+	vfe_output_type type;
 	struct vfe_wm wm[VFE_MAX_WM_PER_OUTPUT];
 
 	struct camss_buffer *buf[2];
