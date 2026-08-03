@@ -689,22 +689,28 @@ static int csid_set_power(struct v4l2_subdev *sd, int on)
 		 * drawback in following the same powering order on older SoCs.
 		 */
 		ret = csid->res->parent_dev_ops->get(camss, csid->id);
-		if (ret < 0)
+		if (ret < 0) {
+			dev_err(dev, "%s/%d no you suck\n", __func__, __LINE__);
 			return ret;
+		}
 
 		ret = pm_runtime_resume_and_get(dev);
-		if (ret < 0)
+		if (ret < 0) {
+			dev_err(dev, "%s/%d no you suck\n", __func__, __LINE__);
 			return ret;
+		}
 
 		ret = regulator_bulk_enable(csid->num_supplies,
 					    csid->supplies);
 		if (ret < 0) {
+			dev_err(dev, "%s/%d no you suck\n", __func__, __LINE__);
 			pm_runtime_put_sync(dev);
 			return ret;
 		}
 
 		ret = csid_set_clock_rates(csid);
 		if (ret < 0) {
+			dev_err(dev, "%s/%d no you suck\n", __func__, __LINE__);
 			regulator_bulk_disable(csid->num_supplies,
 					       csid->supplies);
 			pm_runtime_put_sync(dev);
@@ -713,6 +719,7 @@ static int csid_set_power(struct v4l2_subdev *sd, int on)
 
 		ret = camss_enable_clocks(csid->nclocks, csid->clock, dev);
 		if (ret < 0) {
+			dev_err(dev, "%s/%d no you suck\n", __func__, __LINE__);
 			regulator_bulk_disable(csid->num_supplies,
 					       csid->supplies);
 			pm_runtime_put_sync(dev);
@@ -725,6 +732,7 @@ static int csid_set_power(struct v4l2_subdev *sd, int on)
 
 		ret = csid->res->hw_ops->reset(csid);
 		if (ret < 0) {
+			dev_err(dev, "%s/%d no you suck\n", __func__, __LINE__);
 			disable_irq(csid->irq);
 			camss_disable_clocks(csid->nclocks, csid->clock);
 			regulator_bulk_disable(csid->num_supplies,
@@ -742,6 +750,8 @@ static int csid_set_power(struct v4l2_subdev *sd, int on)
 		pm_runtime_put_sync(dev);
 		csid->res->parent_dev_ops->put(camss, csid->id);
 	}
+if (ret)
+dev_err(dev, "%s/%d no you suck\n", __func__, __LINE__);
 
 	return ret;
 }

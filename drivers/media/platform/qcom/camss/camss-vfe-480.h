@@ -26,7 +26,8 @@ static inline int reg_update_rdi(struct vfe_device *vfe, int n)
  * Full IFE pixel-pipe (IPP/camif) reg-update source. camx vfe480 top:
  * .reg_update_cmd_data = 0x41 (BIT(0) | BIT(6)) for the pp path.
  */
-#define	    REG_UPDATE_IPP		(BIT(0) | BIT(6))
+//#define	    REG_UPDATE_IPP		(BIT(0) | BIT(6))
+#define	    REG_UPDATE_IPP		BIT(0)
 
 #define VFE_IRQ_CMD			(vfe_is_lite(vfe) ? 0x24 : 0x38)
 #define     IRQ_CMD_GLOBAL_CLEAR	BIT(0)

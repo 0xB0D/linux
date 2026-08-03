@@ -219,9 +219,17 @@ static int video_check_format(struct camss_video *video)
 	    pix->height != sd_pix->height ||
 	    pix->width != sd_pix->width ||
 	    pix->num_planes != sd_pix->num_planes ||
-	    pix->field != format.fmt.pix_mp.field)
+	    pix->field != format.fmt.pix_mp.field) {
+               dev_err(video->camss->dev,
+                       "-EPIPE pix->pixelformat %d != sd_pix->pixelformat %d || pix->height %d != sd_pix->height %d||\npix->width %d != sd_pix->width %d||\n"
+                       "pix->num_planes %d != sd_pix->num_planes %d|| pix->field %d!= format.fmt.pix_mp.field%d\n",
+                       pix->pixelformat, sd_pix->pixelformat,
+                       pix->height, sd_pix->height,
+                       pix->width, sd_pix->width,
+                       pix->num_planes, sd_pix->num_planes,
+                       pix->field, format.fmt.pix_mp.field);
 		return -EPIPE;
-
+	}
 	return 0;
 }
 

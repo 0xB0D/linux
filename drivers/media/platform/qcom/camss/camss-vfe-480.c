@@ -108,13 +108,28 @@ static void __vfe_wm_start(struct vfe_device *vfe, struct vfe_output *output,
 
 	writel_relaxed(0x0, vfe->base + VFE_BUS_WM_TEST_BUS_CTRL);
 
-	writel_relaxed(stride * height,
-		       vfe->base + VFE_BUS_WM_FRAME_INCR(bus_client));
-	writel_relaxed(0xf, vfe->base + VFE_BUS_WM_BURST_LIMIT(bus_client));
-	writel_relaxed(WM_IMAGE_CFG_0_DEFAULT_WIDTH,
-		       vfe->base + VFE_BUS_WM_IMAGE_CFG_0(bus_client));
-	writel_relaxed(stride,
-		       vfe->base + VFE_BUS_WM_IMAGE_CFG_2(bus_client));
+	if (output->line->is_pix) { /* PIX - line based */
+		writel_relaxed(height << 16 | pix->width,
+			       vfe->base + VFE_BUS_WM_IMAGE_CFG_0(bus_client));
+		dev_info(vfe->camss->dev, "VFE_BUS_WM_IMAGE_CFG_0(%d) @ VFE_BUS_WM_IMAGE_CFG_0(bus_client) == 0x%08x\n", bus_client, height << 16 | pix->width);
+		writel_relaxed(0, vfe->base + VFE_BUS_WM_IMAGE_CFG_1(bus_client));
+		writel_relaxed(stride,
+			       vfe->base + VFE_BUS_WM_IMAGE_CFG_2(bus_client));
+		writel_relaxed(stride * height,
+			       vfe->base + VFE_BUS_WM_FRAME_INCR(bus_client));
+		writel_relaxed(pix_raw_packer_fmt(pix->pixelformat),
+			       vfe->base + VFE_BUS_WM_PACKER_CFG(bus_client));
+	} else { /* RDI - frame based */
+		writel_relaxed(WM_IMAGE_CFG_0_DEFAULT_WIDTH,
+			       vfe->base + VFE_BUS_WM_IMAGE_CFG_0(bus_client));
+		writel_relaxed(stride,
+			       vfe->base + VFE_BUS_WM_IMAGE_CFG_2(bus_client));
+		writel_relaxed(stride * height,
+			       vfe->base + VFE_BUS_WM_FRAME_INCR(bus_client));
+		writel_relaxed(0,
+			       vfe->base + VFE_BUS_WM_PACKER_CFG(bus_client));
+	}
+
 	writel_relaxed(0, vfe->base + VFE_BUS_WM_PACKER_CFG(bus_client));
 
 	/* no dropped frames, one irq per frame */
@@ -125,6 +140,9 @@ static void __vfe_wm_start(struct vfe_device *vfe, struct vfe_output *output,
 
 	writel_relaxed(1 << WM_CFG_EN | MODE_MIPI_RAW << WM_CFG_MODE,
 		       vfe->base + VFE_BUS_WM_CFG(bus_client));
+
+	dev_info(vfe->camss->dev, "%s wm %d output->line->is_pix %s\n",
+		 __func__, bus_client, output->line->is_pix ? "true" : "false");
 }
 
 static void vfe_wm_start(struct vfe_device *vfe, u8 wm, struct vfe_line *line)
@@ -186,13 +204,16 @@ static void vfe_enable_irq(struct vfe_device *vfe)
 			struct vfe_output *output = &line->output[j];
 
 			/* Enable IRQ for newly added lines, but also keep already running lines's IRQ */
+			dev_info(vfe->camss->dev, "output %d is reserved %d on %d\n",
+				 j, output->state == VFE_OUTPUT_RESERVED, output->state == VFE_OUTPUT_ON);
 			if (output->state == VFE_OUTPUT_RESERVED ||
 			    output->state == VFE_OUTPUT_ON) {
 				bus_irq_mask |= bus_irq_mask_comp_done(vfe, output->comp_group);
 			}
 		}
 	}
-
+bus_irq_mask = ~0u;
+dev_info(vfe->camss->dev, "vfe_bus_mask_irq(0) @ 0x%08x = 0x%08x\n", VFE_BUS_IRQ_MASK(0), bus_irq_mask);
 	writel(bus_irq_mask, vfe->base + VFE_BUS_IRQ_MASK(0));
 }
 
@@ -216,8 +237,20 @@ static irqreturn_t vfe_isr(int irq, void *dev)
 	writel_relaxed(status, vfe->base + VFE_IRQ_CLEAR(0));
 	writel_relaxed(IRQ_CMD_GLOBAL_CLEAR, vfe->base + VFE_IRQ_CMD);
 
+/* in the ISR, when BIT(30)|BIT(31) set: */
+dev_err(vfe->camss->dev, "VIOLATION_STATUS = 0x%08x\n",
+	readl_relaxed(vfe->base + BUS_REG_BASE + 0x64));
+dev_err(vfe->camss->dev, "IMAGE_SIZE_VIOLATION_STATUS = 0x%08x\n",
+	readl_relaxed(vfe->base + BUS_REG_BASE + 0x70));
+dev_err(vfe->camss->dev, "OVERFLOW_STATUS = 0x%08x\n",
+	readl_relaxed(vfe->base + BUS_REG_BASE + 0x68));
+
 	if (status & IRQ_MASK_0_RESET_ACK)
 		vfe_isr_reset_ack(vfe);
+
+	for (i = 0; i < 3; i++)
+		dev_info(vfe->camss->dev, "VFE IRQ STATUS %d = 0x%08x\n",
+			 i, readl_relaxed(vfe->base + VFE_IRQ_STATUS(i)));
 
 	if (status & IRQ_MASK_0_BUS_TOP_IRQ) {
 		u32 status = readl_relaxed(vfe->base + VFE_BUS_IRQ_STATUS(0));
@@ -236,6 +269,8 @@ static irqreturn_t vfe_isr(int irq, void *dev)
 
 			for (j = 0; j < line->num_outputs; j++) {
 				struct vfe_output *output = &line->output[j];
+
+				dev_info(vfe->camss->dev, "%s is pix %d status 0x%08x\n", __func__, output->line->is_pix, status);
 
 				if (status & bus_irq_mask_comp_done(vfe, output->comp_group))
 					vfe_output_buf_done(vfe, output);
@@ -310,6 +345,17 @@ static void vfe_subdev_init(struct device *dev, struct vfe_device *vfe)
 	vfe->line[VFE_LINE_RDI2].output[0].wm[0].plane = 0;
 	vfe->line[VFE_LINE_RDI2].output[0].comp_group = VFE_V3_COMP_GRP_13;
 	vfe->line[VFE_LINE_RDI2].output[0].type = VFE_OUTPUT_TYPE_PIXEL_RAW;
+
+	/* PIX YUV - consisting of two write masters one plane each in one comp_group */
+	vfe->line[VFE_LINE_PIX].output[0].wm_num = 2;
+	vfe->line[VFE_LINE_PIX].output[0].wm[0].bus_client = VFE_WM_VIDEO_FULL_Y;
+	vfe->line[VFE_LINE_PIX].output[0].wm[0].plane = 0;
+	vfe->line[VFE_LINE_PIX].output[0].wm[1].bus_client = VFE_WM_VIDEO_FULL_C;
+	vfe->line[VFE_LINE_PIX].output[0].wm[1].plane = 1;
+	vfe->line[VFE_LINE_PIX].output[0].comp_group = VFE_V3_COMP_GRP_0;
+	vfe->line[VFE_LINE_PIX].output[0].type = VFE_OUTPUT_TYPE_PIXEL_YUV;
+
+	vfe->line[VFE_LINE_PIX].is_pix = true;
 }
 
 static void vfe_isr_read(struct vfe_device *vfe, u32 *value0, u32 *value1)
@@ -326,11 +372,244 @@ static void vfe_buf_done_480(struct vfe_device *vfe, int port_id)
 {
 	/* nop */
 }
+/* camss-vfe-480.h */
+/* JSON: "MODULE_LITE_CFG" in PP_CLC_CAMIF; Valve VFEWrapper line 721 */
+#define VFE_PP_CAMIF_MODULE_CFG		0x2660
+#define		CAMIF_MODULE_EN		BIT(0)
+#define		CAMIF_PIXEL_PATTERN	24	/* [26:24] */
+
+/* camss-vfe-480.c */
+static u32 vfe_bayer_pattern(u32 code)
+{
+	switch (code) {
+	case MEDIA_BUS_FMT_SRGGB10_1X10:
+	case MEDIA_BUS_FMT_SRGGB8_1X8:
+	case MEDIA_BUS_FMT_SRGGB12_1X12:
+		return 0;	/* RGRGRG */
+	case MEDIA_BUS_FMT_SGRBG10_1X10:
+	case MEDIA_BUS_FMT_SGRBG8_1X8:
+	case MEDIA_BUS_FMT_SGRBG12_1X12:
+		return 1;	/* GRGRGR */
+	case MEDIA_BUS_FMT_SBGGR10_1X10:
+	case MEDIA_BUS_FMT_SBGGR8_1X8:
+	case MEDIA_BUS_FMT_SBGGR12_1X12:
+		return 2;	/* BGBGBG */
+	case MEDIA_BUS_FMT_SGBRG10_1X10:
+	case MEDIA_BUS_FMT_SGBRG8_1X8:
+	case MEDIA_BUS_FMT_SGBRG12_1X12:
+		return 3;	/* GBGBGB */
+	default:
+		return 0;
+	}
+}
+
+static void vfe_pix_camif_enable(struct vfe_device *vfe, struct vfe_line *line)
+{
+	u32 pattern = vfe_bayer_pattern(line->fmt[MSM_VFE_PAD_SINK].code);
+
+	writel_relaxed(CAMIF_MODULE_EN | pattern << CAMIF_PIXEL_PATTERN,
+		       vfe->base + VFE_PP_CAMIF_MODULE_CFG);
+
+dev_info(vfe->camss->dev, "CAMIF @ 0x%08x = 0x%08x\n", VFE_PP_CAMIF_MODULE_CFG, CAMIF_MODULE_EN | pattern << CAMIF_PIXEL_PATTERN);
+}
+
+/* ---------- camss-vfe-480.h : ADD bit-field helpers under the blocks ---------- */
+
+/* CROP_RND_CLAMP_*: Kona RTL — CROP: FIRST[29:16]|LAST[13:0] inclusive;
+ * CLAMP: MAX[25:16]|MIN[9:0]; ROUNDING: OFF_BITS[5:3], PATTERN[2:1],
+ * INTERLEAVED[0]. All i_rup_stb shadowed. */
+#define		PP_CROP_FIRST(v)		((v) << 16)
+#define		PP_CROP_LAST(v)			(v)
+#define		PP_CLAMP(min, max)		((max) << 16 | (min))
+#define		PP_RND_OFF_BITS(n)		((n) << 3)
+#define		PP_RND_PATTERN_REGULAR		(0 << 1)
+#define		PP_RND_CH_INTERLEAVED		BIT(0)
+/* DOWNSCALE_MN_C: CFG 0x600 = h+v scale en; H/V_CFG ratio-2 encoding */
+#define		PP_MN_C_CFG_HV_EN		0x600
+#define		PP_MN_C_SCALE_DIV2		(2 << 21 | 3 << 30)
+/* DEMOSAIC defaults (Valve) */
+#define		PP_DEMOSAIC_INTERP_COEFF_DEFAULT	0x00000080
+#define		PP_DEMOSAIC_INTERP_CLASSIFIER_DEFAULT	0x00200066
+#define		PP_DEMOSAIC_WB_GAIN_UNITY		0x400	/* 1.0 Q3.10 */
+
+/* BT.601 full-range RGB->YCbCr, Q3.10 signed, 14-bit fields */
+#define CST_Q(x)	((x) & 0x3fff)
+static const u16 cst_601[3][3] = {
+	{ CST_Q(306),  CST_Q(601),  CST_Q(117)  },	/*  .299  .587  .114 */
+	{ CST_Q(-173), CST_Q(-339), CST_Q(512)  },	/* -.169 -.331  .5   */
+	{ CST_Q(512),  CST_Q(-429), CST_Q(-83)  },	/*  .5   -.419 -.081 */
+};
+static const u16 cst_post_off[3] = { 0, 512, 512 };
+
+/* ---------- camss-vfe-480.c ---------- */
+
+static void __vfe_pp_wb(struct vfe_device *vfe,
+			const struct camss_params_wb_gain *wb)
+{
+	writel_relaxed(wb->b_gain << 16 | wb->g_gain,
+		       vfe->base + VFE_PP_CLC_DEMOSAIC_WB_GAIN_CFG_0);
+	writel_relaxed(wb->r_gain,
+		       vfe->base + VFE_PP_CLC_DEMOSAIC_WB_GAIN_CFG_1);
+	writel_relaxed(wb->b_offset << 16 | wb->g_offset,
+		       vfe->base + VFE_PP_CLC_DEMOSAIC_WB_OFFSET_CFG_0);
+	writel_relaxed(wb->r_offset,
+		       vfe->base + VFE_PP_CLC_DEMOSAIC_WB_OFFSET_CFG_1);
+}
+
+static void __vfe_pp_demosaic(struct vfe_device *vfe,
+			      const struct camss_params_demosaic *dm)
+{
+	/* TODO: pack dm->wk/ak/lambda_* once bit layout verified;
+	 * defaults produce the known-good constants */
+	writel_relaxed(PP_DEMOSAIC_INTERP_COEFF_DEFAULT,
+		       vfe->base + VFE_PP_CLC_DEMOSAIC_INTERP_COEFF_CFG);
+	writel_relaxed(PP_DEMOSAIC_INTERP_CLASSIFIER_DEFAULT,
+		       vfe->base + VFE_PP_CLC_DEMOSAIC_INTERP_CLASSIFIER_CFG);
+	writel_relaxed(1, vfe->base + VFE_PP_CLC_DEMOSAIC_MODULE_CFG);
+}
+
+static void __vfe_pp_cst(struct vfe_device *vfe,
+			 const struct camss_params_color_xform *cx)
+{
+	/* CH register groups stride 0x10 from CH0 */
+	u32 base0 = VFE_PP_CLC_COLOR_XFORM_COLOR_XFORM_CH0_COEFF_CFG_0;
+	unsigned int ch;
+
+	for (ch = 0; ch < 3; ch++) {
+		u32 b = base0 + ch * 0x10;
+
+		writel_relaxed((u16)cx->m[ch][1] << 16 | (u16)cx->m[ch][0],
+			       vfe->base + b);			/* COEFF_CFG_0 */
+		writel_relaxed((u16)cx->m[ch][2],
+			       vfe->base + b + 0x4);		/* COEFF_CFG_1 */
+		writel_relaxed((cx->s[ch] & 0x7ff) << 16 |
+			       (cx->o[ch] & 0x7ff),
+			       vfe->base + b + 0x8);		/* OFFSET_CFG */
+		writel_relaxed(PP_CLAMP(0, 1023),
+			       vfe->base + b + 0xc);		/* CLAMP_CFG */
+	}
+	writel_relaxed(1, vfe->base + VFE_PP_CLC_COLOR_XFORM_MODULE_CFG);
+}
+
+static void __vfe_pp_mn_c(struct vfe_device *vfe, u32 w, u32 h)
+{
+	writel_relaxed(PP_MN_C_CFG_HV_EN,
+		       vfe->base + VFE_PP_CLC_DOWNSCALE_MN_C_VID_OUT_DOWNSCALE_MN_C_CFG);
+	writel_relaxed((h - 1) | (w - 1) << 16,
+		       vfe->base + VFE_PP_CLC_DOWNSCALE_MN_C_VID_OUT_DOWNSCALE_MN_C_IMAGE_SIZE_CFG);
+	writel_relaxed(PP_MN_C_SCALE_DIV2,
+		       vfe->base + VFE_PP_CLC_DOWNSCALE_MN_C_VID_OUT_DOWNSCALE_MN_C_H_CFG);
+	writel_relaxed(0,
+		       vfe->base + VFE_PP_CLC_DOWNSCALE_MN_C_VID_OUT_DOWNSCALE_MN_C_H_PHASE_CFG);
+	writel_relaxed(PP_MN_C_SCALE_DIV2,
+		       vfe->base + VFE_PP_CLC_DOWNSCALE_MN_C_VID_OUT_DOWNSCALE_MN_C_V_CFG);
+	writel_relaxed(0,
+		       vfe->base + VFE_PP_CLC_DOWNSCALE_MN_C_VID_OUT_DOWNSCALE_MN_C_V_PHASE_CFG);
+	/* MN_C's own CROP_LINE/PIXEL (0x667c/0x6680): untouched, as Valve —
+	 * reset state passes through */
+	writel_relaxed(1,
+		       vfe->base + VFE_PP_CLC_DOWNSCALE_MN_C_VID_OUT_MODULE_CFG);
+}
+
+static void __vfe_pp_rnd_clamp(struct vfe_device *vfe, u32 w, u32 h)
+{
+	/* Y */
+	writel_relaxed(PP_CROP_FIRST(0) | PP_CROP_LAST(h - 1),
+		       vfe->base + VFE_PP_CLC_CROP_RND_CLAMP_POST_DOWNSCALE_MN_Y_VID_OUT_CROP_LINE_CFG);
+	writel_relaxed(PP_CROP_FIRST(0) | PP_CROP_LAST(w - 1),
+		       vfe->base + VFE_PP_CLC_CROP_RND_CLAMP_POST_DOWNSCALE_MN_Y_VID_OUT_CROP_PIXEL_CFG);
+	writel_relaxed(PP_CLAMP(0, 255),
+		       vfe->base + VFE_PP_CLC_CROP_RND_CLAMP_POST_DOWNSCALE_MN_Y_VID_OUT_CH0_CLAMP_CFG);
+	writel_relaxed(PP_RND_OFF_BITS(2) | PP_RND_PATTERN_REGULAR,
+		       vfe->base + VFE_PP_CLC_CROP_RND_CLAMP_POST_DOWNSCALE_MN_Y_VID_OUT_CH0_ROUNDING_CFG);
+	writel_relaxed(1,
+		       vfe->base + VFE_PP_CLC_CROP_RND_CLAMP_POST_DOWNSCALE_MN_Y_VID_OUT_MODULE_CFG);
+
+	/* C: post-MN interleaved CbCr, h/2 lines x w samples.
+	 * If chroma shows halved horizontally: PP_CROP_LAST(w / 2 - 1). */
+	writel_relaxed(PP_CROP_FIRST(0) | PP_CROP_LAST(h / 2 - 1),
+		       vfe->base + VFE_PP_CLC_CROP_RND_CLAMP_POST_DOWNSCALE_MN_C_VID_OUT_CROP_LINE_CFG);
+	writel_relaxed(PP_CROP_FIRST(0) | PP_CROP_LAST(w - 1),
+		       vfe->base + VFE_PP_CLC_CROP_RND_CLAMP_POST_DOWNSCALE_MN_C_VID_OUT_CROP_PIXEL_CFG);
+	writel_relaxed(PP_CLAMP(0, 255),
+		       vfe->base + VFE_PP_CLC_CROP_RND_CLAMP_POST_DOWNSCALE_MN_C_VID_OUT_CH0_CLAMP_CFG);
+	writel_relaxed(PP_RND_OFF_BITS(2) | PP_RND_PATTERN_REGULAR |
+		       PP_RND_CH_INTERLEAVED,
+		       vfe->base + VFE_PP_CLC_CROP_RND_CLAMP_POST_DOWNSCALE_MN_C_VID_OUT_CH0_ROUNDING_CFG);
+	writel_relaxed(1,
+		       vfe->base + VFE_PP_CLC_CROP_RND_CLAMP_POST_DOWNSCALE_MN_C_VID_OUT_MODULE_CFG);
+}
+
+static void vfe_pix_pp_full_config(struct vfe_device *vfe, struct vfe_line *line)
+{
+	/* Unity white balance: 1.0 Q3.10 gains, zero offsets. AWB updates via
+	 * params node later. Channel order g/b/r per the UAPI (matches WB_GAIN
+	 * register pairing: CFG_0 = b << 16 | g, CFG_1 = r). */
+	static const struct camss_params_wb_gain vfe_pp_wb_default = {
+		.g_gain		= PP_DEMOSAIC_WB_GAIN_UNITY,	/* 0x400 */
+		.b_gain		= PP_DEMOSAIC_WB_GAIN_UNITY,
+		.r_gain		= PP_DEMOSAIC_WB_GAIN_UNITY,
+		.g_offset	= 0,
+		.b_offset	= 0,
+		.r_offset	= 0,
+	};
+
+	/* Demosaic interpolation defaults. Zero-initialized: the applier maps a
+	 * default struct to the known-good register constants
+	 * (INTERP_COEFF 0x00000080, INTERP_CLASSIFIER 0x00200066, per Valve)
+	 * until the wk/ak/lambda field packing is verified. */
+	static const struct camss_params_demosaic vfe_pp_demosaic_default = {
+		.wk		= 0,
+		.ak		= 0,
+		.lambda_g	= 0,
+		.lambda_rb	= 0,
+		/* dir_/clamp_ disable flags: 0 = enabled */
+	};
+
+	/* RGB -> YCbCr, BT.601 full range, coefficients Q3.10 signed.
+	 *   Y  =  .299 R + .587 G + .114 B
+	 *   Cb = -.169 R - .331 G + .500 B + 512
+	 *   Cr =  .500 R - .419 G - .081 B + 512
+	 * o[] = pre-matrix offsets (none), s[] = post-matrix offsets recentering
+	 * chroma at 10-bit mid-scale; clamp 0..1023 applied by the applier.
+	 * 10 -> 8 bit conversion happens later at CROP_RND_CLAMP (round-off 2). */
+	static const struct camss_params_color_xform vfe_pp_cst_601_default = {
+		.m = {
+			{  306,  601,  117 },
+			{ -173, -339,  512 },
+			{  512, -429,  -83 },
+		},
+		.o = { 0, 0, 0 },
+		.s = { 0, 512, 512 },
+		/* c0/c01, c1/c11, c2/c21 clamp fields: left zero; applier writes
+		 * PP_CLAMP(0, 1023) until the UAPI clamp-field pairing is
+		 * confirmed against the register layout */
+	};
+
+	u32 w = line->fmt[MSM_VFE_PAD_SINK].width;
+	u32 h = line->fmt[MSM_VFE_PAD_SINK].height;
+
+	__vfe_pp_wb(vfe, &vfe_pp_wb_default);
+	__vfe_pp_demosaic(vfe, &vfe_pp_demosaic_default);
+	__vfe_pp_cst(vfe, &vfe_pp_cst_601_default);
+	__vfe_pp_mn_c(vfe, w, h);
+	__vfe_pp_rnd_clamp(vfe, w, h);
+}
 
 /* Output based API - new and shiny */
 static void vfe_output_start(struct vfe_device *vfe, struct vfe_output *output)
 {
+	struct v4l2_pix_format_mplane *pix =
+		&output->video_out.active_fmt.fmt.pix_mp;
 	int i;
+
+dev_info(vfe->camss->dev, "%s is pix %d\n", __func__, output->line->is_pix);
+	if (output->line->is_pix) {
+		vfe_pix_camif_enable(vfe, output->line);
+		if (pix->pixelformat == V4L2_PIX_FMT_NV12 ||
+		    pix->pixelformat == V4L2_PIX_FMT_NV21)
+			vfe_pix_pp_full_config(vfe, output->line);
+	}
 
 	for (i = 0; i < output->wm_num; i++)
 		__vfe_wm_start(vfe, output, output->wm[i].bus_client, output->wm[i].plane);
@@ -340,6 +619,7 @@ static void vfe_output_stop(struct vfe_device *vfe, struct vfe_output *output)
 {
 	int i;
 
+dev_info(vfe->camss->dev, "%s is pix %d\n", __func__, output->line->is_pix);
 	for (i = output->wm_num - 1; i >= 0; i--)
 		__vfe_wm_stop(vfe, output->wm[i].bus_client);
 }

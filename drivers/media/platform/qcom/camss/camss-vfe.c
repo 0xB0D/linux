@@ -1037,9 +1037,10 @@ int vfe_pm_domain_on(struct vfe_device *vfe)
 					  DL_FLAG_STATELESS |
 					  DL_FLAG_PM_RUNTIME |
 					  DL_FLAG_RPM_ACTIVE);
-	if (!vfe->genpd_link)
+	if (!vfe->genpd_link) {
+		dev_err(vfe->camss->dev, "%s/%d no you suck\n", __func__, __LINE__);
 		return -EINVAL;
-
+	}
 	return 0;
 }
 
@@ -1106,7 +1107,7 @@ static int vfe_set_clock_rates(struct vfe_device *vfe)
 				u32 tmp;
 				u8 bpp;
 
-				if (j == VFE_LINE_PIX) {
+				if (0 && j == VFE_LINE_PIX) {
 					tmp = pixel_clock[j];
 				} else {
 					struct vfe_line *l = &vfe->line[j];
@@ -1150,6 +1151,9 @@ static int vfe_set_clock_rates(struct vfe_device *vfe)
 				dev_err(dev, "clk set rate failed: %d\n", ret);
 				return ret;
 			}
+			dev_info(dev, "set %s min %llu freq[%d]=%u round %ld now %lu\n",
+				 clock->name, min_rate, j, clock->freq[j], rate,
+				 clk_get_rate(clock->clk));
 		}
 	}
 
@@ -1187,7 +1191,7 @@ static int vfe_check_clock_rates(struct vfe_device *vfe)
 				u32 tmp;
 				u8 bpp;
 
-				if (j == VFE_LINE_PIX) {
+				if (0 && j == VFE_LINE_PIX) {
 					tmp = pixel_clock[j];
 				} else {
 					struct vfe_line *l = &vfe->line[j];
@@ -1205,8 +1209,12 @@ static int vfe_check_clock_rates(struct vfe_device *vfe)
 			camss_add_clock_margin(&min_rate);
 
 			rate = clk_get_rate(clock->clk);
-			if (rate < min_rate)
+dev_info(vfe->camss->dev, "clk %s rate %d min_rate %d\n", clock->name, rate, min_rate);
+			if (rate < min_rate) {
+				dev_err(vfe->camss->dev, "%s Rate %d Hz < Min %d Hz\n",
+					clock->name, rate, min_rate);
 				return -EBUSY;
+			}
 		}
 	}
 
@@ -1224,28 +1232,39 @@ int vfe_get(struct vfe_device *vfe)
 	int ret;
 
 	mutex_lock(&vfe->power_lock);
-
+dev_info(vfe->camss->dev, "%s entry name vfe %d power_count %d \n", __func__, vfe->id, vfe->power_count);
 	if (vfe->power_count == 0) {
+		dev_info(vfe->camss->dev, "%s power on  %d\n", __func__, vfe->id);
 		ret = vfe->res->hw_ops->pm_domain_on(vfe);
-		if (ret < 0)
+		if (ret < 0) {
+			dev_err(vfe->camss->dev, "%s/%d no you suck\n", __func__, __LINE__);
 			goto error_pm_domain;
+		}
 
 		ret = pm_runtime_resume_and_get(vfe->camss->dev);
-		if (ret < 0)
+		if (ret < 0) {
+			dev_err(vfe->camss->dev, "%s/%d no you suck\n", __func__, __LINE__);
 			goto error_domain_off;
+		}
 
 		ret = vfe_set_clock_rates(vfe);
-		if (ret < 0)
+		if (ret < 0) {
+			dev_err(vfe->camss->dev, "%s/%d no you suck\n", __func__, __LINE__);
 			goto error_pm_runtime_get;
+		}
 
 		ret = camss_enable_clocks(vfe->nclocks, vfe->clock,
 					  vfe->camss->dev);
-		if (ret < 0)
+		if (ret < 0) {
+			dev_err(vfe->camss->dev, "%s/%d no you suck\n", __func__, __LINE__);
 			goto error_pm_runtime_get;
+		}
 
 		ret = vfe_reset(vfe);
-		if (ret < 0)
+		if (ret < 0) {
+			dev_err(vfe->camss->dev, "%s/%d no you suck\n", __func__, __LINE__);
 			goto error_reset;
+		}
 
 		vfe_reset_output_maps(vfe);
 
@@ -1254,8 +1273,10 @@ int vfe_get(struct vfe_device *vfe)
 		vfe->res->hw_ops->hw_version(vfe);
 	} else {
 		ret = vfe_check_clock_rates(vfe);
-		if (ret < 0)
+		if (ret < 0) {
+			dev_err(vfe->camss->dev, "vfe_check_clock_rates fail\n");
 			goto error_pm_domain;
+		}
 	}
 	vfe->power_count++;
 
@@ -1274,6 +1295,7 @@ error_domain_off:
 error_pm_domain:
 	mutex_unlock(&vfe->power_lock);
 
+			dev_err(vfe->camss->dev, "%s/%d no you suck\n", __func__, __LINE__);
 	return ret;
 }
 
@@ -1285,6 +1307,7 @@ void vfe_put(struct vfe_device *vfe)
 {
 	mutex_lock(&vfe->power_lock);
 
+dev_info(vfe->camss->dev, "%s entry name vfe %d power_count %d \n", __func__, vfe->id, vfe->power_count);
 	if (vfe->power_count == 0) {
 		dev_err(vfe->camss->dev, "vfe power off on power_count == 0\n");
 		goto exit;
@@ -1505,7 +1528,6 @@ static void vfe_try_format(struct vfe_line *line,
 
 		if (line->id == VFE_LINE_PIX) {
 			struct v4l2_rect *rect;
-
 			rect = __vfe_get_crop(line, sd_state, which);
 
 			fmt->width = rect->width;
@@ -2047,7 +2069,7 @@ int msm_vfe_subdev_init(struct camss *camss, struct vfe_device *vfe,
 	vfe->camss = camss;
 	vfe->id = id;
 	vfe->reg_update = 0;
-
+dev_info(dev, "%s %d vfe %d power_count %d\n", __func__, __LINE__, vfe->id, vfe->power_count);
 	for (i = VFE_LINE_RDI0; i < vfe->res->line_num; i++) {
 		struct vfe_line *l = &vfe->line[i];
 
@@ -2072,13 +2094,16 @@ int msm_vfe_subdev_init(struct camss *camss, struct vfe_device *vfe,
 			l->formats = res->vfe.formats_rdi->formats;
 		}
 
+dev_info(dev, "%s %d vfe %d power_count %d\n", __func__, __LINE__, vfe->id, vfe->power_count);
 	}
 
 	vfe->res->hw_ops->subdev_init(dev, vfe);
 
+dev_info(dev, "%s %d vfe %d power_count %d\n", __func__, __LINE__, vfe->id, vfe->power_count);
 	init_completion(&vfe->reset_complete);
 	init_completion(&vfe->halt_complete);
 
+dev_info(dev, "%s %d vfe %d power_count %d\n", __func__, __LINE__, vfe->id, vfe->power_count);
 	return 0;
 }
 

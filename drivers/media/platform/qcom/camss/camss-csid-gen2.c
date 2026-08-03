@@ -168,6 +168,62 @@ static void __csid_configure_rdi_stream(struct csid_device *csid, u8 enable, u8 
 	writel_relaxed(val, csid->base + CSID_RDI_CFG0(port));
 }
 
+static void __csid_configure_ipp_stream(struct csid_device *csid, u8 enable, u8 vc)
+{
+	struct v4l2_mbus_framefmt *input_format =
+			&csid->fmt[MSM_CSID_PAD_FIRST_SRC + VFE_LINE_PIX];
+	const struct csid_format_info *format =
+			csid_get_fmt_entry(csid->res->formats->formats,
+					   csid->res->formats->nformats,
+					   input_format->code);
+	u32 val;
+	u8 dt_id = vc & 0x03;
+
+	val = 1 << IPP_CFG0_FORMAT_MEASURE_EN;
+	val |= 1 << IPP_CFG0_TIMESTAMP_EN;
+	/* The IPP decodes pixels for the pixel pipe: real decode format */
+	val |= format->decode_format << IPP_CFG0_DECODE_FORMAT;
+	val |= format->data_type << IPP_CFG0_DATA_TYPE;
+	val |= vc << IPP_CFG0_VIRTUAL_CHANNEL;
+	val |= dt_id << IPP_CFG0_DT_ID;
+	writel_relaxed(val, csid->base + CSID_IPP_CFG0);
+
+	/* CSID_TIMESTAMP_STB_POST_IRQ */
+	val = 2 << IPP_CFG1_TIMESTAMP_STB_SEL;
+	writel_relaxed(val, csid->base + CSID_IPP_CFG1);
+
+	writel_relaxed(1, csid->base + CSID_IPP_FRM_DROP_PERIOD);
+	writel_relaxed(0, csid->base + CSID_IPP_FRM_DROP_PATTERN);
+	writel_relaxed(1, csid->base + CSID_IPP_IRQ_SUBSAMPLE_PERIOD);
+	writel_relaxed(0, csid->base + CSID_IPP_IRQ_SUBSAMPLE_PATTERN);
+	writel_relaxed(1, csid->base + CSID_IPP_RPP_PIX_DROP_PERIOD);
+	writel_relaxed(0, csid->base + CSID_IPP_RPP_PIX_DROP_PATTERN);
+	writel_relaxed(1, csid->base + CSID_IPP_RPP_LINE_DROP_PERIOD);
+	writel_relaxed(0, csid->base + CSID_IPP_RPP_LINE_DROP_PATTERN);
+
+	writel_relaxed(0, csid->base + CSID_IPP_CTRL);
+
+	val = readl_relaxed(csid->base + CSID_IPP_CFG0);
+	val |= enable << IPP_CFG0_ENABLE;
+	writel_relaxed(val, csid->base + CSID_IPP_CFG0);
+	
+	dev_info(csid->camss->dev, "IPP_CFG0 @ 0x%08x = 0x%08x\n", CSID_IPP_CFG0, val);
+}
+
+static void __csid_ctrl_ipp(struct csid_device *csid, int enable)
+{
+	int val;
+
+	if (enable)
+		val = HALT_CMD_RESUME_AT_FRAME_BOUNDARY << IPP_CTRL_HALT_CMD;
+	else
+		val = HALT_CMD_HALT_AT_FRAME_BOUNDARY << IPP_CTRL_HALT_CMD;
+
+	dev_info(csid->camss->dev, "IPP_CTRL @ 0x%08x = 0x%08x\n", CSID_IPP_CTRL, val);
+
+	writel_relaxed(val, csid->base + CSID_IPP_CTRL);
+}
+
 static void csid_configure_stream(struct csid_device *csid, u8 enable)
 {
 	struct csid_testgen_config *tg = &csid->testgen;
@@ -179,9 +235,15 @@ static void csid_configure_stream(struct csid_device *csid, u8 enable)
 			if (tg->enabled)
 				__csid_configure_testgen(csid, enable, i, 0);
 
-			__csid_configure_rdi_stream(csid, enable, i, 0);
-			__csid_configure_rx(csid, &csid->phy, 0);
-			__csid_ctrl_rdi(csid, enable, i);
+			if (!csid_is_lite(csid) && i == VFE_LINE_PIX) {
+				__csid_configure_ipp_stream(csid, enable, 0);
+				__csid_configure_rx(csid, &csid->phy, 0);
+				__csid_ctrl_ipp(csid, enable);
+			} else {
+				__csid_configure_rdi_stream(csid, enable, i, 0);
+				__csid_configure_rx(csid, &csid->phy, 0);
+				__csid_ctrl_rdi(csid, enable, i);
+			}
 		}
 }
 
