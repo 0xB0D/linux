@@ -15,6 +15,7 @@
 #include <media/media-entity.h>
 #include <media/v4l2-device.h>
 #include <media/v4l2-subdev.h>
+#include <uapi/linux/media/qcom/camss/camss-stats-params.h>
 
 #include "camss-video.h"
 #include "camss-vfe-gen1.h"
