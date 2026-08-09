@@ -22,6 +22,12 @@
 #define	CSID_CSI2_RX_IRQ_MASK	0x24
 #define CSID_CSI2_RX_IRQ_CLEAR	0x28
 
+/* camss-csid-480.h — full CSID only; lite has no IPP */
+#define CSID_CSI2_IPP_IRQ_STATUS	0x30
+#define CSID_CSI2_IPP_IRQ_MASK		0x34
+#define CSID_CSI2_IPP_IRQ_CLEAR		0x38
+#define CSID_CSI2_IPP_IRQ_SET		0x3C
+
 #define CSID_CSI2_RDIN_IRQ_STATUS(rdi)		((csid_is_lite(csid) ? 0x30 : 0x40) \
 						 + 0x10 * (rdi))
 #define CSID_CSI2_RDIN_IRQ_MASK(rdi)		((csid_is_lite(csid) ? 0x34 : 0x44) \

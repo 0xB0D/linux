@@ -518,6 +518,8 @@ static u32 vfe_src_pad_code(struct vfe_line *line, u32 sink_code,
 		case MEDIA_BUS_FMT_Y8_1X8:
 		case MEDIA_BUS_FMT_Y10_1X10:
 		{
+dev_info(vfe->camss->dev, "%s/%d line is_pix %d sink_code %d\n",
+	 __func__, __LINE__, line->is_pix, sink_code);
 			if (!line->is_pix)
 				return __vfe_src_pad_default(index, sink_code);
 

@@ -181,6 +181,7 @@ static void __csid_configure_ipp_stream(struct csid_device *csid, u8 enable, u8 
 
 	val = 1 << IPP_CFG0_FORMAT_MEASURE_EN;
 	val |= 1 << IPP_CFG0_TIMESTAMP_EN;
+
 	/* The IPP decodes pixels for the pixel pipe: real decode format */
 	val |= format->decode_format << IPP_CFG0_DECODE_FORMAT;
 	val |= format->data_type << IPP_CFG0_DATA_TYPE;
@@ -188,18 +189,25 @@ static void __csid_configure_ipp_stream(struct csid_device *csid, u8 enable, u8 
 	val |= dt_id << IPP_CFG0_DT_ID;
 	writel_relaxed(val, csid->base + CSID_IPP_CFG0);
 
+dev_info(csid->camss->dev, "CSID_IPP_CFG0 @0x%08x = 0x%08x decode_format 0x%08x data_type 0x%08x vc 0x%08x dt_id 0x%08x\n",
+	  CSID_IPP_CFG0, val,
+	  format->decode_format, format->data_type, vc, dt_id);
+
 	/* CSID_TIMESTAMP_STB_POST_IRQ */
 	val = 2 << IPP_CFG1_TIMESTAMP_STB_SEL;
 	writel_relaxed(val, csid->base + CSID_IPP_CFG1);
 
-	writel_relaxed(1, csid->base + CSID_IPP_FRM_DROP_PERIOD);
+dev_info(csid->camss->dev, "CSID_IPP_CFG1 @0x%08x = 0x%08x\n",
+	 CSID_IPP_CFG1, val);
+
 	writel_relaxed(0, csid->base + CSID_IPP_FRM_DROP_PATTERN);
-	writel_relaxed(1, csid->base + CSID_IPP_IRQ_SUBSAMPLE_PERIOD);
+	writel_relaxed(1, csid->base + CSID_IPP_FRM_DROP_PERIOD);
 	writel_relaxed(0, csid->base + CSID_IPP_IRQ_SUBSAMPLE_PATTERN);
-	writel_relaxed(1, csid->base + CSID_IPP_RPP_PIX_DROP_PERIOD);
+	writel_relaxed(1, csid->base + CSID_IPP_IRQ_SUBSAMPLE_PERIOD);
 	writel_relaxed(0, csid->base + CSID_IPP_RPP_PIX_DROP_PATTERN);
-	writel_relaxed(1, csid->base + CSID_IPP_RPP_LINE_DROP_PERIOD);
+	writel_relaxed(1, csid->base + CSID_IPP_RPP_PIX_DROP_PERIOD);
 	writel_relaxed(0, csid->base + CSID_IPP_RPP_LINE_DROP_PATTERN);
+	writel_relaxed(1, csid->base + CSID_IPP_RPP_LINE_DROP_PERIOD);
 
 	writel_relaxed(0, csid->base + CSID_IPP_CTRL);
 
@@ -207,7 +215,7 @@ static void __csid_configure_ipp_stream(struct csid_device *csid, u8 enable, u8 
 	val |= enable << IPP_CFG0_ENABLE;
 	writel_relaxed(val, csid->base + CSID_IPP_CFG0);
 	
-	dev_info(csid->camss->dev, "IPP_CFG0 @ 0x%08x = 0x%08x\n", CSID_IPP_CFG0, val);
+	dev_info(csid->camss->dev, "CSID_IPP_CFG0 @ 0x%08x = 0x%08x\n", CSID_IPP_CFG0, val);
 }
 
 static void __csid_ctrl_ipp(struct csid_device *csid, int enable)
@@ -219,7 +227,7 @@ static void __csid_ctrl_ipp(struct csid_device *csid, int enable)
 	else
 		val = HALT_CMD_HALT_AT_FRAME_BOUNDARY << IPP_CTRL_HALT_CMD;
 
-	dev_info(csid->camss->dev, "IPP_CTRL @ 0x%08x = 0x%08x\n", CSID_IPP_CTRL, val);
+	dev_info(csid->camss->dev, "CSID_IPP_CTRL @ 0x%08x = 0x%08x\n", CSID_IPP_CTRL, val);
 
 	writel_relaxed(val, csid->base + CSID_IPP_CTRL);
 }
@@ -255,6 +263,8 @@ static int csid_configure_testgen_pattern(struct csid_device *csid, s32 val)
 	return 0;
 }
 
+#define D(dev, fmt, ...) dev_info_ratelimited(dev, fmt, ##__VA_ARGS__)
+
 /*
  * csid_isr - CSID module interrupt service routine
  * @irq: Interrupt line
@@ -275,6 +285,30 @@ static irqreturn_t csid_isr(int irq, void *dev)
 
 	val = readl_relaxed(csid->base + CSID_CSI2_RX_IRQ_STATUS);
 	writel_relaxed(val, csid->base + CSID_CSI2_RX_IRQ_CLEAR);
+
+	/* csid_isr(), gen2 — alongside the RDI loop */
+	//if (!csid_is_lite(csid) && (csid->phy.en_port & BIT(VFE_LINE_PIX))) {
+	if (!csid_is_lite(csid)) {
+		val = readl_relaxed(csid->base + CSID_CSI2_IPP_IRQ_STATUS);
+		writel_relaxed(val, csid->base + CSID_CSI2_IPP_IRQ_CLEAR);
+		if (val) {
+			dev_info_ratelimited(csid->camss->dev,
+					     "CSID%u IPP status 0x%08x\n",
+					     csid->id, val);
+#if 0
+			D(csid->camss->dev, "IPP 0x%08x in[sof:%d sol:%d eol:%d eof:%d] drop[sof:%d sol:%d eol:%d eof:%d] ss[sof:%d eof:%d]%s%s%s%s%s\n",
+				val,
+				!!(val & BIT(12)), !!(val & BIT(11)), !!(val & BIT(10)), !!(val & BIT(9)),
+				!!(val & BIT(8)),  !!(val & BIT(7)),  !!(val & BIT(6)),  !!(val & BIT(5)),
+				!!(val & BIT(4)),  !!(val & BIT(3)),
+				val & BIT(2)  ? " FIFO_OVFL" : "",
+				val & BIT(13) ? " ERR_PIX_CNT" : "",
+				val & BIT(14) ? " ERR_LINE_CNT" : "",
+				val & BIT(15) ? " CCIF_VIOL" : "",
+				val & BIT(20) ? " RUP_DONE" : "");
+#endif
+		}
+	}
 
 	/* Read and clear IRQ status for each enabled RDI channel */
 	for (i = 0; i < MSM_CSID_MAX_SRC_STREAMS; i++)
@@ -310,6 +344,8 @@ static int csid_reset(struct csid_device *csid)
 	writel_relaxed(1, csid->base + CSID_TOP_IRQ_MASK);
 	writel_relaxed(1, csid->base + CSID_IRQ_CMD);
 
+	writel_relaxed(~0u , csid->base + CSID_CSI2_IPP_IRQ_MASK);
+dev_info(csid->camss->dev, "Set CSID_CSI2_IPP_MASK\n");
 	/* preserve registers */
 	val = 0x1e << RST_STROBES;
 	writel_relaxed(val, csid->base + CSID_RST_STROBES);

@@ -13,7 +13,12 @@
 #define VFE_GLOBAL_RESET_CMD		(vfe_is_lite(vfe) ? 0x0c : 0x1c)
 #define	    GLOBAL_RESET_HW_AND_REG	(vfe_is_lite(vfe) ? BIT(1) : BIT(0))
 
-#define VFE_REG_UPDATE_CMD		(vfe_is_lite(vfe) ? 0x20 : 0x34)
+#define VFE_TOP_CORE_CFG_0		0x2c
+#define		CORE_CFG_0_VID_DS16_R2PD_DISABLE	BIT(30)
+#define		CORE_CFG_0_VID_DS4_R2PD_DISABLE		BIT(29)
+#define		CORE_CFG_0_DISP_DS16_R2PD_DISABLE	BIT(28)
+#define		CORE_CFG_0_DISP_DS4_R2PD_DISABLE	BIT(27)
+#define VFE_TOP_CORE_CFG_1		0x30
 
 #define VFE_REG_UPDATE_CMD		(vfe_is_lite(vfe) ? 0x20 : 0x34)
 
@@ -26,8 +31,7 @@ static inline int reg_update_rdi(struct vfe_device *vfe, int n)
  * Full IFE pixel-pipe (IPP/camif) reg-update source. camx vfe480 top:
  * .reg_update_cmd_data = 0x41 (BIT(0) | BIT(6)) for the pp path.
  */
-//#define	    REG_UPDATE_IPP		(BIT(0) | BIT(6))
-#define	    REG_UPDATE_IPP		BIT(0)
+#define	    REG_UPDATE_IPP		(BIT(0) | BIT(7))
 
 #define VFE_IRQ_CMD			(vfe_is_lite(vfe) ? 0x24 : 0x38)
 #define     IRQ_CMD_GLOBAL_CLEAR	BIT(0)

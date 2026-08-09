@@ -45,8 +45,9 @@ typedef enum {
 	VFE_WM_RDI2,
 }vfe_wm_t;
 
-static u32 pix_raw_packer_fmt(u32 v4l2_fmt)
+static u32 pix_packer_fmt(u32 v4l2_fmt)
 {
+return 0x03;
 	switch (v4l2_fmt) {
 	case V4L2_PIX_FMT_SRGGB10P:
 	case V4L2_PIX_FMT_SGRBG10P:
@@ -72,6 +73,10 @@ static u32 pix_raw_packer_fmt(u32 v4l2_fmt)
 	case V4L2_PIX_FMT_SGRBG8:
 	case V4L2_PIX_FMT_SGBRG8:
 	case V4L2_PIX_FMT_SBGGR8:
+	case V4L2_PIX_FMT_NV12:
+	case V4L2_PIX_FMT_NV12M:
+	case V4L2_PIX_FMT_NV21:
+	case V4L2_PIX_FMT_NV21M:
 		return VFE_BUS_WM_PACKER_FMT_PLAIN_8;
 	default:
 		return 0x0;
@@ -91,11 +96,13 @@ static void __vfe_wm_start(struct vfe_device *vfe, struct vfe_output *output,
 		&output->video_out.active_fmt.fmt.pix_mp;
 	u32 stride = pix->plane_fmt[plane].bytesperline;
 	u32 height = pix->height;
+	u32 mode;
 
 	/* Chroma plane of a 4:2:0 semiplanar buffer is half height */
 	switch (pix->pixelformat) {
 	case V4L2_PIX_FMT_NV12:
 	case V4L2_PIX_FMT_NV21:
+		stride = pix->plane_fmt[0].bytesperline;
 		if (plane > 0)
 			height /= 2;
 		break;
@@ -111,14 +118,25 @@ static void __vfe_wm_start(struct vfe_device *vfe, struct vfe_output *output,
 	if (output->line->is_pix) { /* PIX - line based */
 		writel_relaxed(height << 16 | pix->width,
 			       vfe->base + VFE_BUS_WM_IMAGE_CFG_0(bus_client));
-		dev_info(vfe->camss->dev, "VFE_BUS_WM_IMAGE_CFG_0(%d) @ VFE_BUS_WM_IMAGE_CFG_0(bus_client) == 0x%08x\n", bus_client, height << 16 | pix->width);
+		dev_info(vfe->camss->dev, "VFE_BUS_WM_IMAGE_CFG_0(%d) @ VFE_BUS_WM_IMAGE_CFG_0(bus_client)/0x%08x == 0x%08x\n", bus_client, VFE_BUS_WM_IMAGE_CFG_0(bus_client),  height << 16 | pix->width);
+
 		writel_relaxed(0, vfe->base + VFE_BUS_WM_IMAGE_CFG_1(bus_client));
+		dev_info(vfe->camss->dev, "VFE_BUS_WM_IMAGE_CFG_1(%d) @ VFE_BUS_WM_IMAGE_CFG_1(bus_client)/0x%08x == 0x%08x\n", bus_client, VFE_BUS_WM_IMAGE_CFG_1(bus_client),  0);
+
 		writel_relaxed(stride,
 			       vfe->base + VFE_BUS_WM_IMAGE_CFG_2(bus_client));
+		dev_info(vfe->camss->dev, "VFE_BUS_WM_IMAGE_CFG_2(%d) @ VFE_BUS_WM_IMAGE_CFG_2(bus_client)/0x%08x == 0x%08x\n", bus_client, VFE_BUS_WM_IMAGE_CFG_2(bus_client),  stride);
+		
 		writel_relaxed(stride * height,
 			       vfe->base + VFE_BUS_WM_FRAME_INCR(bus_client));
-		writel_relaxed(pix_raw_packer_fmt(pix->pixelformat),
+		dev_info(vfe->camss->dev, "VFE_BUS_WM_IMAGE_INCR(%d) @ VFE_BUS_WM_IMAGE_INCR(bus_client)/0x%08x == 0x%08x\n", bus_client, VFE_BUS_WM_FRAME_INCR(bus_client), stride * height );
+		
+		writel_relaxed(pix_packer_fmt(pix->pixelformat),
 			       vfe->base + VFE_BUS_WM_PACKER_CFG(bus_client));
+		dev_info(vfe->camss->dev, "VFE_BUS_WM_PACKER_CFG(%d) @ VFE_BUS_WM_PACKER_CFG(bus_client)/0x%08x == 0x%08x\n", bus_client, VFE_BUS_WM_PACKER_CFG(bus_client),  pix_packer_fmt(pix->pixelformat));
+
+		mode = 1 << WM_CFG_EN;
+
 	} else { /* RDI - frame based */
 		writel_relaxed(WM_IMAGE_CFG_0_DEFAULT_WIDTH,
 			       vfe->base + VFE_BUS_WM_IMAGE_CFG_0(bus_client));
@@ -128,6 +146,8 @@ static void __vfe_wm_start(struct vfe_device *vfe, struct vfe_output *output,
 			       vfe->base + VFE_BUS_WM_FRAME_INCR(bus_client));
 		writel_relaxed(0,
 			       vfe->base + VFE_BUS_WM_PACKER_CFG(bus_client));
+
+		mode = 1 << WM_CFG_EN | MODE_MIPI_RAW << WM_CFG_MODE;
 	}
 
 	writel_relaxed(0, vfe->base + VFE_BUS_WM_PACKER_CFG(bus_client));
@@ -138,7 +158,7 @@ static void __vfe_wm_start(struct vfe_device *vfe, struct vfe_output *output,
 	writel_relaxed(0, vfe->base + VFE_BUS_WM_IRQ_SUBSAMPLE_PERIOD(bus_client));
 	writel_relaxed(1, vfe->base + VFE_BUS_WM_IRQ_SUBSAMPLE_PATTERN(bus_client));
 
-	writel_relaxed(1 << WM_CFG_EN | MODE_MIPI_RAW << WM_CFG_MODE,
+	writel_relaxed(mode,
 		       vfe->base + VFE_BUS_WM_CFG(bus_client));
 
 	dev_info(vfe->camss->dev, "%s wm %d output->line->is_pix %s\n",
@@ -220,6 +240,8 @@ dev_info(vfe->camss->dev, "vfe_bus_mask_irq(0) @ 0x%08x = 0x%08x\n", VFE_BUS_IRQ
 static void vfe_isr_reg_update(struct vfe_device *vfe, enum vfe_line_id line_id);
 static void vfe_output_buf_done(struct vfe_device *vfe, struct vfe_output *output);
 
+#define D(dev, fmt, ...) dev_info(dev, fmt, ##__VA_ARGS__)
+
 /*
  * vfe_isr - VFE module interrupt handler
  * @irq: Interrupt line
@@ -230,11 +252,13 @@ static void vfe_output_buf_done(struct vfe_device *vfe, struct vfe_output *outpu
 static irqreturn_t vfe_isr(int irq, void *dev)
 {
 	struct vfe_device *vfe = dev;
-	u32 status;
+	u32 status[3];
 	int i, j;
 
-	status = readl_relaxed(vfe->base + VFE_IRQ_STATUS(0));
-	writel_relaxed(status, vfe->base + VFE_IRQ_CLEAR(0));
+	status[0] = readl_relaxed(vfe->base + VFE_IRQ_STATUS(0));
+	status[1] = readl_relaxed(vfe->base + VFE_IRQ_STATUS(1));
+	status[2] = readl_relaxed(vfe->base + VFE_IRQ_STATUS(2));
+	writel_relaxed(status[0], vfe->base + VFE_IRQ_CLEAR(0));
 	writel_relaxed(IRQ_CMD_GLOBAL_CLEAR, vfe->base + VFE_IRQ_CMD);
 
 /* in the ISR, when BIT(30)|BIT(31) set: */
@@ -244,22 +268,71 @@ dev_err(vfe->camss->dev, "IMAGE_SIZE_VIOLATION_STATUS = 0x%08x\n",
 	readl_relaxed(vfe->base + BUS_REG_BASE + 0x70));
 dev_err(vfe->camss->dev, "OVERFLOW_STATUS = 0x%08x\n",
 	readl_relaxed(vfe->base + BUS_REG_BASE + 0x68));
+dev_err(vfe->camss->dev, "PP Violation status = 0x%08x\n",
+	readl_relaxed(vfe->base + BUS_REG_BASE + 0x74));
 
-	if (status & IRQ_MASK_0_RESET_ACK)
+
+	D(vfe->camss->dev, "VFE IRQ0 0x%08x%s%s%s%s\n", status[0],
+	  status[0] & BIT(31) ? " RESET_ACK" : "",
+	  status[0] & BIT(1)  ? " BUS_TOP" : "",
+	  status[0] & BIT(0)  ? " FRAME_HDR?" : "",
+	  status[0] & ~(BIT(31) | BIT(1) | BIT(0)) ? " +unknown" : "");
+
+	D(vfe->camss->dev, "VFE IRQ1 0x%08x%s%s%s%s%s\n", status[1],
+	  status[1] & BIT(0) ? " CAMIF_SOF" : "",
+	  status[1] & BIT(1) ? " CAMIF_EOF" : "",
+	  status[1] & BIT(2) ? " EPOCH0" : "",
+	  status[1] & BIT(3) ? " EPOCH1" : "",
+	  status[1] & ~GENMASK(3, 0) ? " +more" : "");
+
+	D(vfe->camss->dev, "VFE IRQ2 0x%08x%s%s%s%s%s%s%s%s\n", status[2],
+	  status[2] & BIT(11) ? " PP_CAMIF_VIOL" : "",
+	  status[2] & BIT(12) ? " PP_VIOL" : "",
+	  status[2] & BIT(15) ? " LCR_CAMIF_VIOL" : "",
+	  status[2] & BIT(16) ? " LCR_VIOL" : "",
+	  status[2] & BIT(17) ? " RDI0_CAMIF_VIOL" : "",
+	  status[2] & BIT(18) ? " RDI1_CAMIF_VIOL" : "",
+	  status[2] & BIT(19) ? " RDI2_CAMIF_VIOL" : "",
+	  status[2] & BIT(7)  ? " DSP_PROTO" : "");
+
+	if (status[0] & IRQ_MASK_0_RESET_ACK)
 		vfe_isr_reset_ack(vfe);
 
-	for (i = 0; i < 3; i++)
-		dev_info(vfe->camss->dev, "VFE IRQ STATUS %d = 0x%08x\n",
-			 i, readl_relaxed(vfe->base + VFE_IRQ_STATUS(i)));
+u32 bus0, bus1;
 
-	if (status & IRQ_MASK_0_BUS_TOP_IRQ) {
-		u32 status = readl_relaxed(vfe->base + VFE_BUS_IRQ_STATUS(0));
+bus0 = readl_relaxed(vfe->base + VFE_BUS_IRQ_STATUS(0));
+bus1 = readl_relaxed(vfe->base + VFE_BUS_IRQ_STATUS(1));
 
-		writel_relaxed(status, vfe->base + VFE_BUS_IRQ_CLEAR(0));
+/* ================= BUS_IRQ_STATUS 0 ================= */
+	D(vfe->camss->dev, "B0 0x%08x rup[ipp:%d pd:%d lcr:%d rdi:%d%d%d] comp[grp0:%d grp3:%d grp7:%d grp11-13:%d%d%d]%s%s\n",
+	  bus0,
+	  !!(bus0 & BIT(0)), !!(bus0 & BIT(1)), !!(bus0 & BIT(2)),
+	  !!(bus0 & BIT(3)), !!(bus0 & BIT(4)), !!(bus0 & BIT(5)),
+	  !!(bus0 & BIT(6)),		/* comp grp0 = FULL   */
+	  !!(bus0 & BIT(9)),		/* comp grp3 = PIXEL_RAW */
+	  !!(bus0 & BIT(13)),		/* comp grp7 = stats  */
+	  !!(bus0 & BIT(17)), !!(bus0 & BIT(18)), !!(bus0 & BIT(19)),
+	  bus0 & BIT(30) ? " CCIF_VIOL" : "",
+	  bus0 & BIT(31) ? " IMG_SZ_VIOL" : "");
+
+/* ================= BUS_IRQ_STATUS 1: per-client BUF_DONE ================= */
+	D(vfe->camss->dev, "B1 0x%08x done[Y:%d C:%d ds4:%d ds16:%d bhist:%d ihist:%d lcr:%d rdi:%d%d%d]\n",
+	  bus1,
+	  !!(bus1 & BIT(0)),  !!(bus1 & BIT(1)),	/* FULL_Y / FULL_C */
+	  !!(bus1 & BIT(2)),  !!(bus1 & BIT(3)),	/* DS4 / DS16      */
+	  !!(bus1 & BIT(16)), !!(bus1 & BIT(19)),	/* BHIST / IHIST   */
+	  !!(bus1 & BIT(22)),				/* LCR             */
+	  !!(bus1 & BIT(23)), !!(bus1 & BIT(24)), !!(bus1 & BIT(25)));	/* RDI0-2 */
+
+
+	if (status[0] & IRQ_MASK_0_BUS_TOP_IRQ) {
+		u32 bus_status = readl_relaxed(vfe->base + VFE_BUS_IRQ_STATUS(0));
+
+		writel_relaxed(bus_status, vfe->base + VFE_BUS_IRQ_CLEAR(0));
 		writel_relaxed(1, vfe->base + VFE_BUS_IRQ_CLEAR_GLOBAL);
 
 		for (i = 0; i < MAX_VFE_OUTPUT_LINES; i++) {
-			if (status & bus_irq_mask_rup(vfe, i))
+			if (bus_status & bus_irq_mask_rup(vfe, i))
 				vfe_isr_reg_update(vfe, i);
 		}
 
@@ -270,9 +343,10 @@ dev_err(vfe->camss->dev, "OVERFLOW_STATUS = 0x%08x\n",
 			for (j = 0; j < line->num_outputs; j++) {
 				struct vfe_output *output = &line->output[j];
 
-				dev_info(vfe->camss->dev, "%s is pix %d status 0x%08x\n", __func__, output->line->is_pix, status);
+				dev_info(vfe->camss->dev, "%s is pix %d bus_status 0x%08x required comp_group %x\n",
+					 __func__, output->line->is_pix,bus_status, output->comp_group);
 
-				if (status & bus_irq_mask_comp_done(vfe, output->comp_group))
+				if (bus_status & bus_irq_mask_comp_done(vfe, output->comp_group))
 					vfe_output_buf_done(vfe, output);
 			}
 		}
@@ -443,32 +517,59 @@ static const u16 cst_post_off[3] = { 0, 512, 512 };
 
 /* ---------- camss-vfe-480.c ---------- */
 
-static void __vfe_pp_wb(struct vfe_device *vfe,
+static void __vfe_configure_white_balance(struct vfe_device *vfe,
 			const struct camss_params_wb_gain *wb)
 {
 	writel_relaxed(wb->b_gain << 16 | wb->g_gain,
 		       vfe->base + VFE_PP_CLC_DEMOSAIC_WB_GAIN_CFG_0);
+dev_info(vfe->camss->dev, "%s VFE_PP_CLC_DEMOSAIC_WB_GAIN_CFG_0 @ 0x%08x = 0x%08x\n",
+	 __func__, VFE_PP_CLC_DEMOSAIC_WB_GAIN_CFG_0, wb->b_gain << 16 | wb->g_gain);
+
 	writel_relaxed(wb->r_gain,
 		       vfe->base + VFE_PP_CLC_DEMOSAIC_WB_GAIN_CFG_1);
+
+dev_info(vfe->camss->dev, "%s VFE_PP_CLC_DEMOSAIC_WB_GAIN_CFG_1 @ 0x%08x = 0x%08x\n",
+	 __func__, VFE_PP_CLC_DEMOSAIC_WB_GAIN_CFG_1, wb->r_gain);
+
 	writel_relaxed(wb->b_offset << 16 | wb->g_offset,
 		       vfe->base + VFE_PP_CLC_DEMOSAIC_WB_OFFSET_CFG_0);
+
+dev_info(vfe->camss->dev, "%s VFE_PP_CLC_DEMOSAIC_WB_OFFSET_CFG_0 @ 0x%08x = 0x%08x\n",
+	 __func__, VFE_PP_CLC_DEMOSAIC_WB_OFFSET_CFG_0, wb->b_offset << 16 | wb->g_offset);
+
 	writel_relaxed(wb->r_offset,
 		       vfe->base + VFE_PP_CLC_DEMOSAIC_WB_OFFSET_CFG_1);
+
+dev_info(vfe->camss->dev, "%s VFE_PP_CLC_DEMOSAIC_WB_OFFSET_CFG_0 @ 0x%08x = 0x%08x\n",
+	 __func__, VFE_PP_CLC_DEMOSAIC_WB_OFFSET_CFG_1, wb->r_offset);
+
 }
 
-static void __vfe_pp_demosaic(struct vfe_device *vfe,
+static void __vfe_configure_demosaic(struct vfe_device *vfe,
 			      const struct camss_params_demosaic *dm)
 {
 	/* TODO: pack dm->wk/ak/lambda_* once bit layout verified;
 	 * defaults produce the known-good constants */
 	writel_relaxed(PP_DEMOSAIC_INTERP_COEFF_DEFAULT,
 		       vfe->base + VFE_PP_CLC_DEMOSAIC_INTERP_COEFF_CFG);
+
+dev_info(vfe->camss->dev, "%s VFE_PP_CLC_DEMOSAIC_INTERP_COEFF_CFG @ 0x%08x = 0x%08x\n",
+	 __func__, VFE_PP_CLC_DEMOSAIC_INTERP_COEFF_CFG, PP_DEMOSAIC_INTERP_COEFF_DEFAULT);
+
 	writel_relaxed(PP_DEMOSAIC_INTERP_CLASSIFIER_DEFAULT,
 		       vfe->base + VFE_PP_CLC_DEMOSAIC_INTERP_CLASSIFIER_CFG);
+
+dev_info(vfe->camss->dev, "%s PP_DEMOSAIC_INTERP_CLASSIFIER_DEFAULT @ 0x%08x = 0x%08x\n",
+	 __func__, PP_DEMOSAIC_INTERP_CLASSIFIER_DEFAULT, VFE_PP_CLC_DEMOSAIC_INTERP_CLASSIFIER_CFG);
+
 	writel_relaxed(1, vfe->base + VFE_PP_CLC_DEMOSAIC_MODULE_CFG);
+
+dev_info(vfe->camss->dev, "%s VFE_PP_CLC_DEMOSAIC_MODULE_CFG @ 0x%08x = 0x%08x\n",
+	 __func__, VFE_PP_CLC_DEMOSAIC_MODULE_CFG, 1);
+
 }
 
-static void __vfe_pp_cst(struct vfe_device *vfe,
+static void __vfe_configure_color_xform(struct vfe_device *vfe,
 			 const struct camss_params_color_xform *cx)
 {
 	/* CH register groups stride 0x10 from CH0 */
@@ -489,59 +590,134 @@ static void __vfe_pp_cst(struct vfe_device *vfe,
 			       vfe->base + b + 0xc);		/* CLAMP_CFG */
 	}
 	writel_relaxed(1, vfe->base + VFE_PP_CLC_COLOR_XFORM_MODULE_CFG);
+
+dev_info(vfe->camss->dev, "%s VFE_PP_CLC_COLOR_XFORM_MODULE_CFG @ 0x%08x = 0x%08x\n",
+	 __func__, VFE_PP_CLC_COLOR_XFORM_MODULE_CFG, 1);
+
 }
 
-static void __vfe_pp_mn_c(struct vfe_device *vfe, u32 w, u32 h)
+static void __vfe_configure_chroma_down_sampling(struct vfe_device *vfe, u32 w, u32 h)
 {
 	writel_relaxed(PP_MN_C_CFG_HV_EN,
 		       vfe->base + VFE_PP_CLC_DOWNSCALE_MN_C_VID_OUT_DOWNSCALE_MN_C_CFG);
+
+
+dev_info(vfe->camss->dev, "%s VFE_PP_CLC_DOWNSCALE_MN_C_VID_OUT_DOWNSCALE_MN_C_CFG @ 0x%08x = 0x%08x\n",
+	 __func__, VFE_PP_CLC_DOWNSCALE_MN_C_VID_OUT_DOWNSCALE_MN_C_CFG, PP_MN_C_CFG_HV_EN);
+
 	writel_relaxed((h - 1) | (w - 1) << 16,
 		       vfe->base + VFE_PP_CLC_DOWNSCALE_MN_C_VID_OUT_DOWNSCALE_MN_C_IMAGE_SIZE_CFG);
+
+dev_info(vfe->camss->dev, "%s VFE_PP_CLC_DOWNSCALE_MN_C_VID_OUT_DOWNSCALE_MN_C_IMAGE_SIZE_CFG @ 0x%08x = 0x%08x\n",
+	 __func__, VFE_PP_CLC_DOWNSCALE_MN_C_VID_OUT_DOWNSCALE_MN_C_IMAGE_SIZE_CFG, (h - 1) | (w - 1) << 16);
+
 	writel_relaxed(PP_MN_C_SCALE_DIV2,
 		       vfe->base + VFE_PP_CLC_DOWNSCALE_MN_C_VID_OUT_DOWNSCALE_MN_C_H_CFG);
+
+dev_info(vfe->camss->dev, "%s VFE_PP_CLC_DOWNSCALE_MN_C_VID_OUT_DOWNSCALE_MN_C_H_CFG @ 0x%08x = 0x%08x\n",
+	 __func__, VFE_PP_CLC_DOWNSCALE_MN_C_VID_OUT_DOWNSCALE_MN_C_H_CFG, PP_MN_C_SCALE_DIV2);
+
 	writel_relaxed(0,
 		       vfe->base + VFE_PP_CLC_DOWNSCALE_MN_C_VID_OUT_DOWNSCALE_MN_C_H_PHASE_CFG);
+
+dev_info(vfe->camss->dev, "%s VFE_PP_CLC_DOWNSCALE_MN_C_VID_OUT_DOWNSCALE_MN_C_H_PHASE_CFG @ 0x%08x = 0x%08x\n",
+	 __func__, VFE_PP_CLC_DOWNSCALE_MN_C_VID_OUT_DOWNSCALE_MN_C_H_PHASE_CFG, 0);
+
 	writel_relaxed(PP_MN_C_SCALE_DIV2,
 		       vfe->base + VFE_PP_CLC_DOWNSCALE_MN_C_VID_OUT_DOWNSCALE_MN_C_V_CFG);
+
+dev_info(vfe->camss->dev, "%sVFE_PP_CLC_DOWNSCALE_MN_C_VID_OUT_DOWNSCALE_MN_C_V_CFG @ 0x%08x = 0x%08x\n",
+	 __func__, VFE_PP_CLC_DOWNSCALE_MN_C_VID_OUT_DOWNSCALE_MN_C_V_CFG, PP_MN_C_SCALE_DIV2);
+
 	writel_relaxed(0,
 		       vfe->base + VFE_PP_CLC_DOWNSCALE_MN_C_VID_OUT_DOWNSCALE_MN_C_V_PHASE_CFG);
+
+dev_info(vfe->camss->dev, "%s VFE_PP_CLC_DOWNSCALE_MN_C_VID_OUT_DOWNSCALE_MN_C_V_PHASE_CFG @ 0x%08x = 0x%08x\n",
+	 __func__, VFE_PP_CLC_DOWNSCALE_MN_C_VID_OUT_DOWNSCALE_MN_C_V_PHASE_CFG, 0);
+
 	/* MN_C's own CROP_LINE/PIXEL (0x667c/0x6680): untouched, as Valve —
 	 * reset state passes through */
 	writel_relaxed(1,
 		       vfe->base + VFE_PP_CLC_DOWNSCALE_MN_C_VID_OUT_MODULE_CFG);
+
+dev_info(vfe->camss->dev, "%s VFE_PP_CLC_DOWNSCALE_MN_C_VID_OUT_MODULE_CFG @ 0x%08x = 0x%08x\n",
+	 __func__, VFE_PP_CLC_DOWNSCALE_MN_C_VID_OUT_MODULE_CFG, 1);
+
 }
 
-static void __vfe_pp_rnd_clamp(struct vfe_device *vfe, u32 w, u32 h)
+static void __vfe_configure_round_clamp(struct vfe_device *vfe, u32 w, u32 h)
 {
 	/* Y */
 	writel_relaxed(PP_CROP_FIRST(0) | PP_CROP_LAST(h - 1),
 		       vfe->base + VFE_PP_CLC_CROP_RND_CLAMP_POST_DOWNSCALE_MN_Y_VID_OUT_CROP_LINE_CFG);
+
+dev_info(vfe->camss->dev, "%s VFE_PP_CLC_CROP_RND_CLAMP_POST_DOWNSCALE_MN_Y_VID_OUT_CROP_LINE_CFG @ 0x%08x = 0x%08x\n",
+	 __func__, VFE_PP_CLC_CROP_RND_CLAMP_POST_DOWNSCALE_MN_Y_VID_OUT_CROP_LINE_CFG, PP_CROP_FIRST(0) | PP_CROP_LAST(h - 1));
+
 	writel_relaxed(PP_CROP_FIRST(0) | PP_CROP_LAST(w - 1),
 		       vfe->base + VFE_PP_CLC_CROP_RND_CLAMP_POST_DOWNSCALE_MN_Y_VID_OUT_CROP_PIXEL_CFG);
+
+dev_info(vfe->camss->dev, "%s VFE_PP_CLC_CROP_RND_CLAMP_POST_DOWNSCALE_MN_Y_VID_OUT_CROP_PIXEL_CFG @ 0x%08x = 0x%08x\n",
+	 __func__, VFE_PP_CLC_CROP_RND_CLAMP_POST_DOWNSCALE_MN_Y_VID_OUT_CROP_PIXEL_CFG, PP_CROP_FIRST(0) | PP_CROP_LAST(w - 1));
+
 	writel_relaxed(PP_CLAMP(0, 255),
 		       vfe->base + VFE_PP_CLC_CROP_RND_CLAMP_POST_DOWNSCALE_MN_Y_VID_OUT_CH0_CLAMP_CFG);
+
+dev_info(vfe->camss->dev, "%s VFE_PP_CLC_CROP_RND_CLAMP_POST_DOWNSCALE_MN_Y_VID_OUT_CH0_CLAMP_CFG @ 0x%08x = 0x%08x\n",
+	 __func__, VFE_PP_CLC_CROP_RND_CLAMP_POST_DOWNSCALE_MN_Y_VID_OUT_CH0_CLAMP_CFG, PP_CLAMP(0, 255));
+
 	writel_relaxed(PP_RND_OFF_BITS(2) | PP_RND_PATTERN_REGULAR,
 		       vfe->base + VFE_PP_CLC_CROP_RND_CLAMP_POST_DOWNSCALE_MN_Y_VID_OUT_CH0_ROUNDING_CFG);
+
+dev_info(vfe->camss->dev, "%s VFE_PP_CLC_CROP_RND_CLAMP_POST_DOWNSCALE_MN_Y_VID_OUT_CH0_ROUNDING_CFG @ 0x%08x = 0x%08x\n",
+	__func__, VFE_PP_CLC_CROP_RND_CLAMP_POST_DOWNSCALE_MN_Y_VID_OUT_CH0_ROUNDING_CFG, PP_RND_OFF_BITS(2) | PP_RND_PATTERN_REGULAR);
+
 	writel_relaxed(1,
 		       vfe->base + VFE_PP_CLC_CROP_RND_CLAMP_POST_DOWNSCALE_MN_Y_VID_OUT_MODULE_CFG);
+
+dev_info(vfe->camss->dev, "%s VFE_PP_CLC_CROP_RND_CLAMP_POST_DOWNSCALE_MN_Y_VID_OUT_MODULE_CFG @ 0x%08x = 0x%08x\n",
+	 __func__, VFE_PP_CLC_CROP_RND_CLAMP_POST_DOWNSCALE_MN_Y_VID_OUT_MODULE_CFG, 1);
 
 	/* C: post-MN interleaved CbCr, h/2 lines x w samples.
 	 * If chroma shows halved horizontally: PP_CROP_LAST(w / 2 - 1). */
 	writel_relaxed(PP_CROP_FIRST(0) | PP_CROP_LAST(h / 2 - 1),
 		       vfe->base + VFE_PP_CLC_CROP_RND_CLAMP_POST_DOWNSCALE_MN_C_VID_OUT_CROP_LINE_CFG);
+
+dev_info(vfe->camss->dev, "%s VFE_PP_CLC_CROP_RND_CLAMP_POST_DOWNSCALE_MN_C_VID_OUT_CROP_LINE_CFG @ 0x%08x = 0x%08x\n",
+	 __func__, VFE_PP_CLC_CROP_RND_CLAMP_POST_DOWNSCALE_MN_C_VID_OUT_CROP_LINE_CFG, PP_CROP_FIRST(0) | PP_CROP_LAST(h / 2 - 1));
+
 	writel_relaxed(PP_CROP_FIRST(0) | PP_CROP_LAST(w - 1),
 		       vfe->base + VFE_PP_CLC_CROP_RND_CLAMP_POST_DOWNSCALE_MN_C_VID_OUT_CROP_PIXEL_CFG);
+
+dev_info(vfe->camss->dev, "%s VFE_PP_CLC_CROP_RND_CLAMP_POST_DOWNSCALE_MN_C_VID_OUT_CROP_PIXEL_CFG @ 0x%08x = 0x%08x\n",
+	 __func__, VFE_PP_CLC_CROP_RND_CLAMP_POST_DOWNSCALE_MN_C_VID_OUT_CROP_PIXEL_CFG, PP_CROP_FIRST(0) | PP_CROP_LAST(w - 1));
+
 	writel_relaxed(PP_CLAMP(0, 255),
 		       vfe->base + VFE_PP_CLC_CROP_RND_CLAMP_POST_DOWNSCALE_MN_C_VID_OUT_CH0_CLAMP_CFG);
+
+dev_info(vfe->camss->dev, "%s VFE_PP_CLC_CROP_RND_CLAMP_POST_DOWNSCALE_MN_C_VID_OUT_CH0_CLAMP_CFG @ 0x%08x = 0x%08x\n",
+	 __func__, VFE_PP_CLC_CROP_RND_CLAMP_POST_DOWNSCALE_MN_C_VID_OUT_CH0_CLAMP_CFG, PP_CLAMP(0, 255));
+
 	writel_relaxed(PP_RND_OFF_BITS(2) | PP_RND_PATTERN_REGULAR |
 		       PP_RND_CH_INTERLEAVED,
 		       vfe->base + VFE_PP_CLC_CROP_RND_CLAMP_POST_DOWNSCALE_MN_C_VID_OUT_CH0_ROUNDING_CFG);
+
+dev_info(vfe->camss->dev, "%s VFE_PP_CLC_CROP_RND_CLAMP_POST_DOWNSCALE_MN_C_VID_OUT_CH0_ROUNDING_CFG @ 0x%08x = 0x%08x\n",
+	 __func__, VFE_PP_CLC_CROP_RND_CLAMP_POST_DOWNSCALE_MN_C_VID_OUT_CH0_ROUNDING_CFG, PP_RND_OFF_BITS(2) | PP_RND_PATTERN_REGULAR |
+                       PP_RND_CH_INTERLEAVED);
+
 	writel_relaxed(1,
 		       vfe->base + VFE_PP_CLC_CROP_RND_CLAMP_POST_DOWNSCALE_MN_C_VID_OUT_MODULE_CFG);
+
+dev_info(vfe->camss->dev, "%s VFE_PP_CLC_CROP_RND_CLAMP_POST_DOWNSCALE_MN_C_VID_OUT_MODULE_CFG @ 0x%08x = 0x%08x\n",
+	 __func__, VFE_PP_CLC_CROP_RND_CLAMP_POST_DOWNSCALE_MN_C_VID_OUT_MODULE_CFG, 1);
+
 }
 
 static void vfe_pix_pp_full_config(struct vfe_device *vfe, struct vfe_line *line)
 {
+	const struct vfe_hw_ops *ops = vfe->res->hw_ops;
+
 	/* Unity white balance: 1.0 Q3.10 gains, zero offsets. AWB updates via
 	 * params node later. Channel order g/b/r per the UAPI (matches WB_GAIN
 	 * register pairing: CFG_0 = b << 16 | g, CFG_1 = r). */
@@ -589,11 +765,13 @@ static void vfe_pix_pp_full_config(struct vfe_device *vfe, struct vfe_line *line
 	u32 w = line->fmt[MSM_VFE_PAD_SINK].width;
 	u32 h = line->fmt[MSM_VFE_PAD_SINK].height;
 
-	__vfe_pp_wb(vfe, &vfe_pp_wb_default);
-	__vfe_pp_demosaic(vfe, &vfe_pp_demosaic_default);
-	__vfe_pp_cst(vfe, &vfe_pp_cst_601_default);
-	__vfe_pp_mn_c(vfe, w, h);
-	__vfe_pp_rnd_clamp(vfe, w, h);
+//	__vfe_configure_white_balance(vfe, &vfe_pp_wb_default);
+	__vfe_configure_demosaic(vfe, &vfe_pp_demosaic_default);
+	__vfe_configure_color_xform(vfe, &vfe_pp_cst_601_default);
+	__vfe_configure_chroma_down_sampling(vfe, w, h);
+//	__vfe_configure_round_clamp(vfe, w, h);
+
+	ops->reg_update(vfe, line->id);
 }
 
 /* Output based API - new and shiny */
@@ -602,6 +780,19 @@ static void vfe_output_start(struct vfe_device *vfe, struct vfe_output *output)
 	struct v4l2_pix_format_mplane *pix =
 		&output->video_out.active_fmt.fmt.pix_mp;
 	int i;
+
+	writel_relaxed(CORE_CFG_0_VID_DS16_R2PD_DISABLE |
+		       CORE_CFG_0_VID_DS4_R2PD_DISABLE |
+		       CORE_CFG_0_DISP_DS16_R2PD_DISABLE |
+		       CORE_CFG_0_DISP_DS4_R2PD_DISABLE,
+		       vfe->base + VFE_TOP_CORE_CFG_0);	/* = 0x78000000 */
+	writel_relaxed(0, vfe->base + VFE_TOP_CORE_CFG_1);
+
+dev_info(vfe->camss->dev, "%s VFE_TOP_CORE_CFG_0 = 0x%08x\n",
+	 __func__, readl(vfe->base + VFE_TOP_CORE_CFG_0));
+dev_info(vfe->camss->dev, "%s VFE_TOP_CORE_CFG_1 = 0x%08x\n",
+	 __func__, readl(vfe->base + VFE_TOP_CORE_CFG_1));
+
 
 dev_info(vfe->camss->dev, "%s is pix %d\n", __func__, output->line->is_pix);
 	if (output->line->is_pix) {
