@@ -15,6 +15,37 @@
 #include "camss.h"
 #include "camss-vfe.h"
 
+typedef enum {
+	VFE_WM_VIDEO_FULL_Y = 0,
+	VFE_WM_VIDEO_FULL_C,
+	VFE_WM_VIDEO_DS_4,
+	VFE_WM_VIDEO_DS_16,
+	VFE_WM_DISPLAY_FULL_Y,
+	VFE_WM_DISPLAY_FULL_C,
+	VFE_WM_DISPLAY_DS_4,
+	VFE_WM_DISPLAY_DS_16,
+	VFE_WM_FD_Y,
+	VFE_WM_FD_C,
+	VFE_WM_PIXEL_RAW,
+	VFE_WM_STATS_BE0,
+	VFE_WM_STATS_BHIST0,
+	VFE_WM_STATS_TINTLESS_BG,
+	VFE_WM_STATS_AWB_BG,
+	VFE_WM_STATS_AWB_BFW,
+	VFE_WM_STATS_BAF,
+	VFE_WM_STATS_BHIST,
+	VFE_WM_STATS_RS,
+	VFE_WM_STATS_IHIST,
+	VFE_WM_SPARSE_PD,
+	VFE_WM_PDAF_V2_0_PD_DATA,
+	VFE_WM_PDAF_V2_0_SAD,
+	VFE_WM_LCR,
+	VFE_WM_RDI0,
+	VFE_WM_RDI1,
+	VFE_WM_RDI2,
+	VFE_WM_LTM_STATS
+}vfe_wm_t;
+
 #define VFE_TOP_IRQn_STATUS(vfe, n)		((vfe_is_lite(vfe) ? 0x1c : 0x44) + (n) * 4)
 #define VFE_TOP_IRQn_MASK(vfe, n)		((vfe_is_lite(vfe) ? 0x24 : 0x34) + (n) * 4)
 #define VFE_TOP_IRQn_CLEAR(vfe, n)		((vfe_is_lite(vfe) ? 0x2c : 0x3c) + (n) * 4)
