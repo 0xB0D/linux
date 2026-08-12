@@ -42,6 +42,24 @@
 #define VFE_BUS_IMAGE_CFG1(vfe, c)		((vfe_is_lite(vfe) ? 0x410 : 0xe10) + (c) * 0x100)
 #define VFE_BUS_IMAGE_CFG2(vfe, c)		((vfe_is_lite(vfe) ? 0x414 : 0xe14) + (c) * 0x100)
 #define VFE_BUS_PACKER_CFG(vfe, c)		((vfe_is_lite(vfe) ? 0x418 : 0xe18) + (c) * 0x100)
+#define		VFE_BUS_WM_PACKER_FMT_MASK			GENMASK(4, 0)
+#define		VFE_BUS_WM_PACKER_FMT_PLAIN_128			0x00
+#define		VFE_BUS_WM_PACKER_FMT_PLAIN_8			0x01
+#define		VFE_BUS_WM_PACKER_FMT_PLAIN_8_SWAP		0x02
+#define		VFE_BUS_WM_PACKER_FMT_PLAIN_8_LSB_MSB_10	0x03
+#define		VFE_BUS_WM_PACKER_FMT_PLAIN_8_LSB_MSB_10_SWAP	0x04
+#define		VFE_BUS_WM_PACKER_FMT_PLAIN_16_10BPP		0x05
+#define		VFE_BUS_WM_PACKER_FMT_PLAIN_16_12BPP		0x06
+#define		VFE_BUS_WM_PACKER_FMT_PLAIN_16_14BPP		0x07
+#define		VFE_BUS_WM_PACKER_FMT_PLAIN_16_16BPP		0x08
+#define		VFE_BUS_WM_PACKER_FMT_PLAIN_32			0x09
+#define		VFE_BUS_WM_PACKER_FMT_PLAIN_64			0x0a
+#define		VFE_BUS_WM_PACKER_FMT_TP10			0x0b
+#define		VFE_BUS_WM_PACKER_FMT_MIPI10			0x0c
+#define		VFE_BUS_WM_PACKER_FMT_MIPI12			0x0d
+#define		VFE_BUS_WM_PACKER_FMT_MIPI14			0x0e
+#define		VFE_BUS_WM_PACKER_FMT_MIPI20			0x0f
+#define		VFE_BUS_WM_PACKER_FMT_PLAIN_32_20BPP		0x10
 #define VFE_BUS_IRQ_SUBSAMPLE_PERIOD(vfe, c)	((vfe_is_lite(vfe) ? 0x430 : 0xe30) + (c) * 0x100)
 #define VFE_BUS_IRQ_SUBSAMPLE_PATTERN(vfe, c)	((vfe_is_lite(vfe) ? 0x434 : 0xe34) + (c) * 0x100)
 #define VFE_BUS_FRAMEDROP_PERIOD(vfe, c)	((vfe_is_lite(vfe) ? 0x438 : 0xe38) + (c) * 0x100)
