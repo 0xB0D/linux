@@ -15,6 +15,7 @@
 #include "camss.h"
 #include "camss-vfe.h"
 #include "camss-vfe-680.h"
+#include "camss-vfe-680-pp-regs.h"
 
 typedef enum {
 	VFE_WM_VIDEO_FULL_Y = 0,
